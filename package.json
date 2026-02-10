@@ -40,12 +40,12 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/vortexdd/effect-bun-redis.git"
+		"url": "git+https://github.com/Vortex-Dimension-Digital/effect-redis-bun.git"
 	},
 	"bugs": {
-		"url": "https://github.com/vortexdd/effect-bun-redis/issues"
+		"url": "https://github.com/Vortex-Dimension-Digital/effect-redis-bun/issues"
 	},
-	"homepage": "https://github.com/vortexdd/effect-bun-redis#readme",
+	"homepage": "https://github.com/Vortex-Dimension-Digital/effect-redis-bun#readme",
 	"peerDependencies": {
 		"effect": ">=3.1.2 <4",
 		"@effect/platform": ">=0.52.3 <1"
