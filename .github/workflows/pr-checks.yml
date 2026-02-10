@@ -1,0 +1,62 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Prevent duplicate runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate PR
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.22
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check for lockfile changes
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "bun.lock"; then
+            echo "✓ Lockfile changes detected"
+          fi
+
+      - name: Run all checks
+        run: |
+          echo "Running lint..."
+          bun run lint
+          echo "Running type check..."
+          bun run check-types
+          echo "Running tests..."
+          bun test
+          echo "Running build..."
+          bun run build
+          echo "✓ All checks passed"
+
+      - name: Check package size
+        run: |
+          SIZE=$(du -sh dist | cut -f1)
+          echo "Build size: $SIZE"
+          echo "### 📦 Package Size" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Built package size: **$SIZE**" >> $GITHUB_STEP_SUMMARY
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "### ✅ PR Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All validation checks completed for this PR." >> $GITHUB_STEP_SUMMARY

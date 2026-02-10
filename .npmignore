@@ -1,0 +1,49 @@
+# Archivos de desarrollo
+src/
+*.test.ts
+*.spec.ts
+tsconfig.json
+biome.json
+
+# Configuración
+.github/
+.vscode/
+flake.nix
+
+# Tests y CI
+coverage/
+.nyc_output/
+*.log
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentación de desarrollo (mantener README.md)
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+
+# Nix
+*.nix
+result/
+
+# Otros
+.DS_Store
+*.swp
+*.swo
+*~
+.env
+.env.*
+!.env.example
+
+# Bun
+bun.lockb
+
+# Solo queremos:
+# - dist/ (build output)
+# - README.md
+# - EXAMPLES.md
+# - LICENSE
+# - package.json
