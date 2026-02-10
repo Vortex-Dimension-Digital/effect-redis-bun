@@ -25,7 +25,7 @@ Instead, report privately through:
    - Complete the form with details
 
 2. **Direct Email** (alternative)
-   - Send an email to: [YOUR_SECURITY_EMAIL]
+   - Send an email to: contactodesarrollo@dimensionvortex.com
    - Subject: `[SECURITY] Brief description`
    - Include all details in the body
 
@@ -144,7 +144,7 @@ const badLayer = makeLayer({
 
 ### 📝 Security History
 
-See [GitHub Security Advisories](https://github.com/OWNER/effect-bun-redis/security/advisories) for published advisories.
+See [GitHub Security Advisories](https://github.com/Vortex-Dimension-Digital/effect-redis-bun/security/advisories) for published advisories.
 
 ---
 

@@ -14,8 +14,8 @@ Thanks for your interest in contributing to `effect-bun-redis`! 🎉
 
 ```bash
 # Fork the repository on GitHub, then:
-git clone https://github.com/YOUR_USERNAME/effect-bun-redis.git
-cd effect-bun-redis
+git clone https://github.com/Vortex-Dimension-Digital/effect-redis-bun.git
+cd effect-redis-bun
 ```
 
 ### 2. Install Dependencies
@@ -99,7 +99,7 @@ Then open a Pull Request on GitHub. Include:
 ## Project Structure
 
 ```
-effect-bun-redis/
+effect-redis-bun/
 ├── src/
 │   ├── index.ts         # Main implementation
 │   └── index.test.ts    # Unit tests
@@ -223,8 +223,8 @@ PRs will be reviewed considering:
 
 If you have questions:
 
-- Open a [Discussion](https://github.com/OWNER/effect-bun-redis/discussions)
-- Check [existing issues](https://github.com/OWNER/effect-bun-redis/issues)
+- Open a [Discussion](https://github.com/Vortex-Dimension-Digital/effect-redis-bun/discussions)
+- Check [existing issues](https://github.com/Vortex-Dimension-Digital/effect-redis-bun/issues)
 - Read the [documentation](README.md) and [examples](EXAMPLES.md)
 
 For security vulnerabilities, see our [Security Policy](./SECURITY.md).
