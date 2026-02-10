@@ -1,6 +1,6 @@
 {
 	"name": "@vortexdd/effect-bun-redis",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Effect KeyValueStore implementation using Bun's native Redis client",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -40,7 +40,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/vortexdd/effect-bun-redis.git"
+		"url": "git+https://github.com/vortexdd/effect-bun-redis.git"
 	},
 	"bugs": {
 		"url": "https://github.com/vortexdd/effect-bun-redis/issues"
