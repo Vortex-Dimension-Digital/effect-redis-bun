@@ -43,6 +43,24 @@ integrationDescribe("fromClient integration (real redis)", () => {
 		expect(Option.isNone(removed)).toBe(true);
 	});
 
+	it("remove is idempotent for missing keys", async () => {
+		if (!redisUrl) {
+			return;
+		}
+
+		client = new RedisClient(redisUrl, {
+			enableOfflineQueue: false,
+		});
+		await client.connect();
+		store = fromClient(client, { scanBatchSize: 20 });
+
+		const missingKey = `itest:missing:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+
+		await Effect.runPromise(store.remove(missingKey));
+		const found = await Effect.runPromise(store.get(missingKey));
+		expect(Option.isNone(found)).toBe(true);
+	});
+
 	it("supports binary values through getUint8Array", async () => {
 		if (!redisUrl) {
 			return;
@@ -90,6 +108,32 @@ integrationDescribe("fromClient integration (real redis)", () => {
 			expect(size).toBe(3);
 
 			await Effect.runPromise(store.clear);
+			const dbSize = await client.send("DBSIZE", []);
+			expect(Number(dbSize)).toBe(0);
+		},
+	);
+
+	(allowDestructive ? it : it.skip)(
+		"supports repeated clear in isolated redis db",
+		async () => {
+			if (!redisUrl) {
+				return;
+			}
+
+			client = new RedisClient(redisUrl, {
+				enableOfflineQueue: false,
+			});
+			await client.connect();
+			store = fromClient(client, { scanBatchSize: 2 });
+
+			await client.send("FLUSHDB", []);
+
+			await Effect.runPromise(store.set("k1", "1"));
+			await Effect.runPromise(store.set("k2", "2"));
+
+			await Effect.runPromise(store.clear);
+			await Effect.runPromise(store.clear);
+
 			const dbSize = await client.send("DBSIZE", []);
 			expect(Number(dbSize)).toBe(0);
 		},

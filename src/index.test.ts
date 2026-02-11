@@ -9,6 +9,8 @@ class FakeRedisClient implements RedisClient {
 	private readonly decoder = new TextDecoder();
 
 	readonly delCalls: Array<ReadonlyArray<string>> = [];
+	readonly sendCommands: Array<string> = [];
+	scanCallCount = 0;
 	connected = false;
 
 	connect = async (): Promise<void> => {
@@ -53,6 +55,7 @@ class FakeRedisClient implements RedisClient {
 		cursor: string | number,
 		...args: Array<string | number>
 	): Promise<[string, Array<string>]> => {
+		this.scanCallCount += 1;
 		const currentCursor = String(cursor);
 		const countIndex = args.indexOf("COUNT");
 		const count =
@@ -103,7 +106,10 @@ class FakeRedisClient implements RedisClient {
 		command: string,
 		args: ReadonlyArray<string>,
 	): Promise<unknown> => {
-		switch (command.toUpperCase()) {
+		const normalized = command.toUpperCase();
+		this.sendCommands.push(normalized);
+
+		switch (normalized) {
 			case "GET": {
 				const key = args[0];
 				if (!key) {
@@ -126,6 +132,9 @@ class FakeRedisClient implements RedisClient {
 			case "SCAN": {
 				const cursor = args[0] ?? "0";
 				return this.scan(cursor, ...args.slice(1));
+			}
+			case "DBSIZE": {
+				return this.store.size;
 			}
 			default:
 				throw new Error(`Unsupported command in fake client: ${command}`);
@@ -155,6 +164,16 @@ describe("buildUrl", () => {
 		});
 
 		expect(url).toBe("redis://:secret@127.0.0.1:6379/0");
+	});
+
+	it("builds url with username only", () => {
+		const url = buildUrl({
+			host: "127.0.0.1",
+			port: 6379,
+			username: "agent",
+		});
+
+		expect(url).toBe("redis://agent@127.0.0.1:6379/0");
 	});
 });
 
@@ -220,5 +239,7 @@ describe("fromClient", () => {
 
 		const size = await Effect.runPromise(store.size);
 		expect(size).toBe(5);
+		expect(redis.sendCommands).toContain("DBSIZE");
+		expect(redis.scanCallCount).toBe(0);
 	});
 });

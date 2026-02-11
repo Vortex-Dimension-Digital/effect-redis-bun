@@ -39,6 +39,7 @@ export type RedisClient = Pick<
 };
 
 const DEFAULT_SCAN_BATCH_SIZE = 200;
+const MAX_CLEAR_SWEEPS = 16;
 
 const toPlatformError = (
 	method: string,
@@ -111,12 +112,13 @@ export const buildUrl = (config: ConnectionConfig): string => {
 	const database = config.database ?? 0;
 	const protocol = config.tls ? "rediss" : "redis";
 
-	const auth =
-		username && password
+	const auth = username
+		? password
 			? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
-			: password
-				? `:${encodeURIComponent(password)}@`
-				: "";
+			: `${encodeURIComponent(username)}@`
+		: password
+			? `:${encodeURIComponent(password)}@`
+			: "";
 
 	return `${protocol}://${auth}${config.host}:${config.port}/${database}`;
 };
@@ -180,6 +182,14 @@ export const fromClient = (
 			: client
 					.send("SCAN", [cursor, "MATCH", "*", "COUNT", count.toString()])
 					.then(readScan);
+	const getDbSize = (): Promise<number> =>
+		client.send("DBSIZE", []).then((value) => {
+			const parsed = typeof value === "number" ? value : Number(value);
+			if (!Number.isInteger(parsed) || parsed < 0) {
+				throw new TypeError(`Invalid DBSIZE response: ${String(value)}`);
+			}
+			return parsed;
+		});
 	const impl: StringStoreImpl = {
 		get: (key) =>
 			Effect.tryPromise({
@@ -202,33 +212,42 @@ export const fromClient = (
 				catch: (error) => toPlatformError("remove", error),
 			}).pipe(Effect.asVoid),
 		clear: Effect.gen(function* () {
-			let cursor = "0";
-			do {
-				const [nextCursor, keys] = yield* Effect.tryPromise({
-					try: () => scanKeys(cursor),
-					catch: (error) => toPlatformError("clear.scan", error),
-				});
-				cursor = nextCursor;
-				if (keys.length > 0) {
-					yield* Effect.tryPromise({
-						try: () => delKeys(keys),
-						catch: (error) => toPlatformError("clear.del", error),
+			for (let sweep = 0; sweep < MAX_CLEAR_SWEEPS; sweep += 1) {
+				let cursor = "0";
+				do {
+					const [nextCursor, keys] = yield* Effect.tryPromise({
+						try: () => scanKeys(cursor),
+						catch: (error) => toPlatformError("clear.scan", error),
 					});
-				}
-			} while (cursor !== "0");
-		}),
-		size: Effect.gen(function* () {
-			let cursor = "0";
-			let total = 0;
-			do {
-				const [nextCursor, keys] = yield* Effect.tryPromise({
-					try: () => scanKeys(cursor),
-					catch: (error) => toPlatformError("size", error),
+					cursor = nextCursor;
+					if (keys.length > 0) {
+						yield* Effect.tryPromise({
+							try: () => delKeys(keys),
+							catch: (error) => toPlatformError("clear.del", error),
+						});
+					}
+				} while (cursor !== "0");
+
+				const remaining = yield* Effect.tryPromise({
+					try: () => getDbSize(),
+					catch: (error) => toPlatformError("clear.dbsize", error),
 				});
-				cursor = nextCursor;
-				total += keys.length;
-			} while (cursor !== "0");
-			return total;
+
+				if (remaining === 0) {
+					return;
+				}
+			}
+
+			return yield* toPlatformError(
+				"clear",
+				new Error(
+					`Unable to clear Redis keys after ${MAX_CLEAR_SWEEPS} sweeps. Concurrent writes may still be in progress.`,
+				),
+			);
+		}),
+		size: Effect.tryPromise({
+			try: () => getDbSize(),
+			catch: (error) => toPlatformError("size", error),
 		}),
 	};
 
