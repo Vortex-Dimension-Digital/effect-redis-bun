@@ -39,8 +39,6 @@ export type RedisClient = Pick<
 };
 
 const DEFAULT_SCAN_BATCH_SIZE = 200;
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 
 const toPlatformError = (
 	method: string,
@@ -79,24 +77,6 @@ type StringStoreImpl = {
 	readonly size: Effect.Effect<number, PlatformError.PlatformError>;
 };
 
-const readString = (value: unknown): string | null => {
-	if (value === null || value === undefined) {
-		return null;
-	}
-	if (typeof value === "string") {
-		return value;
-	}
-	return String(value);
-};
-
-const readNumber = (value: unknown): number => {
-	if (typeof value === "number") {
-		return value;
-	}
-	const parsed = Number(value);
-	return Number.isNaN(parsed) ? 0 : parsed;
-};
-
 const readScan = (value: unknown): [string, Array<string>] => {
 	if (!Array.isArray(value) || value.length < 2) {
 		return ["0", []];
@@ -106,9 +86,6 @@ const readScan = (value: unknown): [string, Array<string>] => {
 	const keys = Array.isArray(keysRaw) ? keysRaw.map((key) => String(key)) : [];
 	return [cursor, keys];
 };
-
-const toStoredString = (value: string | Uint8Array): string =>
-	typeof value === "string" ? value : textDecoder.decode(value);
 
 /**
  * Builds a Redis connection URL from configuration.
@@ -189,25 +166,14 @@ export const fromClient = (
 ): KeyValueStore.KeyValueStore => {
 	const scanBatchSize = options?.scanBatchSize ?? DEFAULT_SCAN_BATCH_SIZE;
 	const count = scanBatchSize > 0 ? scanBatchSize : DEFAULT_SCAN_BATCH_SIZE;
-	const getString = (key: string): Promise<string | null> =>
-		client.get ? client.get(key) : client.send("GET", [key]).then(readString);
+	const getString = (key: string): Promise<string | null> => client.get(key);
 	const getBinary = (key: string): Promise<Uint8Array | null> =>
-		client.getBuffer
-			? client.getBuffer(key)
-			: getString(key).then((value) =>
-					value === null ? null : textEncoder.encode(value),
-				);
+		client.getBuffer(key);
 	const setValue = (
 		key: string,
 		value: string | Uint8Array,
-	): Promise<unknown> =>
-		client.set
-			? client.set(key, value)
-			: client.send("SET", [key, toStoredString(value)]);
-	const delKeys = (keys: Array<string>): Promise<number> =>
-		client.del
-			? client.del(...keys)
-			: client.send("DEL", keys).then(readNumber);
+	): Promise<unknown> => client.set(key, value);
+	const delKeys = (keys: Array<string>): Promise<number> => client.del(...keys);
 	const scanKeys = (cursor: string): Promise<[string, Array<string>]> =>
 		client.scan
 			? client.scan(cursor, "MATCH", "*", "COUNT", count).then(readScan)
