@@ -1,6 +1,6 @@
 # Advanced Examples
 
-This document provides advanced usage examples for `@vortexdd/effect-bun-redis`.
+This document provides advanced usage examples for `@vortexdd/effect-redis-bun`.
 
 ## Table of Contents
 
@@ -201,7 +201,7 @@ Configure different Redis instances per environment:
 ```typescript
 import { Config, Effect, Layer } from "effect";
 import { KeyValueStore } from "@effect/platform";
-import { makeLayer } from "@vortexdd/effect-bun-redis";
+import { makeLayer } from "@vortexdd/effect-redis-bun";
 
 // Read configuration from environment
 const RedisConfigLive = Layer.effect(
@@ -258,7 +258,7 @@ Handle cleanup on application shutdown:
 ```typescript
 import { Effect, Exit } from "effect";
 import { KeyValueStore } from "@effect/platform";
-import { makeLayer } from "@vortexdd/effect-bun-redis";
+import { makeLayer } from "@vortexdd/effect-redis-bun";
 
 const RedisLive = makeLayer({
   host: "localhost",

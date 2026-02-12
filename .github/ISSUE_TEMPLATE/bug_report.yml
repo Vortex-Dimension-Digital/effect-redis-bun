@@ -24,7 +24,7 @@ body:
       description: Minimal code that reproduces the problem
       placeholder: |
         ```typescript
-        import { makeLayer } from "effect-bun-redis"
+        import { makeLayer } from "effect-redis-bun"
         
         const layer = makeLayer({ host: "localhost" })
         // ...
@@ -73,7 +73,7 @@ body:
   - type: input
     id: package-version
     attributes:
-      label: effect-bun-redis Version
+      label: effect-redis-bun Version
       description: Check your package.json
       placeholder: "1.0.0"
     validations:

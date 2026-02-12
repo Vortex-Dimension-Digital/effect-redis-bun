@@ -1,4 +1,4 @@
-# @vortexdd/effect-bun-redis
+# @vortexdd/effect-redis-bun
 
 Effect KeyValueStore implementation using Bun's native Redis client.
 
@@ -67,7 +67,7 @@ If you need advanced Redis features, consider using [ioredis](https://github.com
 ## Installation
 
 ```bash
-bun add @vortexdd/effect-bun-redis
+bun add @vortexdd/effect-redis-bun
 ```
 
 ## Usage
@@ -75,7 +75,7 @@ bun add @vortexdd/effect-bun-redis
 ### Basic Setup
 
 ```typescript
-import { makeLayer } from "@vortexdd/effect-bun-redis";
+import { makeLayer } from "@vortexdd/effect-redis-bun";
 import { KeyValueStore } from "@effect/platform";
 import { Effect } from "effect";
 
@@ -124,7 +124,7 @@ If you need more control, you can create the client separately:
 import {
   createClient,
   fromClient,
-} from "@vortexdd/effect-bun-redis";
+} from "@vortexdd/effect-redis-bun";
 
 const client = createClient({
   host: "localhost",
@@ -727,7 +727,7 @@ For security vulnerabilities, please see our [Security Policy](./SECURITY.md).
 ## Project Structure
 
 ```
-effect-bun-redis/
+effect-redis-bun/
 ├── src/
 │   ├── index.ts           # Main implementation
 │   └── index.test.ts      # Test suite

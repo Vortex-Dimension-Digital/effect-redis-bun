@@ -1,6 +1,6 @@
 # Contributing Guide
 
-Thanks for your interest in contributing to `effect-bun-redis`! 🎉
+Thanks for your interest in contributing to `effect-redis-bun`! 🎉
 
 ## Prerequisites
 

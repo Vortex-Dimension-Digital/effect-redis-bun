@@ -278,7 +278,7 @@ export const fromClient = (
  * ```typescript
  * import { Effect } from "effect";
  * import { KeyValueStore } from "@effect/platform";
- * import { makeLayer } from "@vortexdd/effect-bun-redis";
+ * import { makeLayer } from "@vortexdd/effect-redis-bun";
  *
  * const RedisLive = makeLayer({
  *   host: "localhost",

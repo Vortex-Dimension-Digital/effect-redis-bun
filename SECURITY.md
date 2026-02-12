@@ -11,7 +11,7 @@ We currently provide security support for the following versions:
 
 ## Reporting a Vulnerability
 
-The security of `effect-bun-redis` is a priority. If you discover a security vulnerability, please help us by following these guidelines:
+The security of `effect-redis-bun` is a priority. If you discover a security vulnerability, please help us by following these guidelines:
 
 ### 🔒 Reporting Process
 
@@ -35,7 +35,7 @@ To help us understand and resolve the issue quickly, include:
 
 - **Type of vulnerability** (e.g., injection, XSS, authentication, etc.)
 - **Location of affected code** (files, lines)
-- **Affected version** of effect-bun-redis
+- **Affected version** of effect-redis-bun
 - **Steps to reproduce** the problem
 - **Potential impact** of the vulnerability
 - **Suggested fix** (if you have one)
@@ -124,7 +124,7 @@ To use this library securely:
 ### 🔐 Secure Configuration
 
 ```typescript
-import { makeLayer } from "effect-bun-redis"
+import { makeLayer } from "effect-redis-bun"
 
 // ✅ Good: Credentials from env vars
 const layer = makeLayer({
@@ -148,4 +148,4 @@ See [GitHub Security Advisories](https://github.com/Vortex-Dimension-Digital/eff
 
 ---
 
-Thanks for helping keep `effect-bun-redis` secure for everyone. 🙏
+Thanks for helping keep `effect-redis-bun` secure for everyone. 🙏
