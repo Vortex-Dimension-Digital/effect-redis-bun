@@ -38,10 +38,7 @@
 	],
 	"author": "vortexdd",
 	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/Vortex-Dimension-Digital/effect-redis-bun.git"
-	},
+	"repository": "github:Vortex-Dimension-Digital/effect-redis-bun",
 	"bugs": {
 		"url": "https://github.com/Vortex-Dimension-Digital/effect-redis-bun/issues"
 	},
