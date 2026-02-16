@@ -25,7 +25,6 @@
       perSystem =
         {
           pkgs,
-          lib,
           config,
           ...
         }:
@@ -35,15 +34,8 @@
           pre-commit = {
             check.enable = true;
 
-            hooks = {
-              bun-lint = {
-                enable = true;
-                name = "bun run lint";
-                entry = "${pkgs.bun}/bin/bun run lint";
-                language = "system";
-                pass_filenames = false;
-                stages = [ "pre-commit" ];
-              };
+            settings.hooks = {
+              biome.enable = true;
 
               bun-test = {
                 enable = true;
@@ -57,7 +49,8 @@
           };
           devShells.default =
             let
-              inherit (config.pre-commit) shellHook enabledPackages;
+              inherit (config.pre-commit) shellHook;
+              inherit (config.pre-commit.settings) enabledPackages;
             in
             pkgs.mkShell {
               inherit shellHook;
