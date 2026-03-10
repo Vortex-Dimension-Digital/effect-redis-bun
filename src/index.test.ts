@@ -1,18 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { KeyValueStore } from "@effect/platform";
-import type { RedisClient as BunRedisClient } from "bun";
 import { Effect, Layer, Option } from "effect";
 import {
-	BunRedisClient as BunRedisClientTag,
 	buildUrl,
 	fromClient,
-	layerFromBunRedisClient,
+	fromClientService,
+	layerFromRedis,
+	Redis,
 	type RedisClient,
 } from "./index";
 
 class FakeRedisClient implements RedisClient {
 	private readonly store = new Map<string, string>();
-	private getSortedKeys = () => Array.from(this.store.keys()).sort();
 	private readonly encoder = new TextEncoder();
 	private readonly decoder = new TextDecoder();
 
@@ -20,6 +19,8 @@ class FakeRedisClient implements RedisClient {
 	readonly sendCommands: Array<string> = [];
 	scanCallCount = 0;
 	connected = false;
+
+	private getSortedKeys = () => Array.from(this.store.keys()).sort();
 
 	connect = async (): Promise<void> => {
 		this.connected = true;
@@ -70,13 +71,10 @@ class FakeRedisClient implements RedisClient {
 			countIndex >= 0 && countIndex + 1 < args.length
 				? Number.parseInt(String(args[countIndex + 1] ?? "10"), 10)
 				: 10;
-
 		const allKeys = this.getSortedKeys();
 
-		// Start from the beginning if cursor is "0" or if empty
 		if (currentCursor === "0" || allKeys.length === 0) {
 			const batch = allKeys.slice(0, count);
-			// Use last key as cursor, or "0" if done
 			const nextCursor =
 				batch.length >= count && batch.length < allKeys.length
 					? (batch[batch.length - 1] ?? "0")
@@ -84,10 +82,7 @@ class FakeRedisClient implements RedisClient {
 			return [nextCursor, batch];
 		}
 
-		// Find position after the cursor key
 		const cursorIndex = allKeys.indexOf(currentCursor);
-
-		// If cursor key not found, might have been deleted - start from beginning
 		if (cursorIndex === -1) {
 			const batch = allKeys.slice(0, count);
 			const nextCursor =
@@ -97,13 +92,10 @@ class FakeRedisClient implements RedisClient {
 			return [nextCursor, batch];
 		}
 
-		// Get next batch starting after the cursor
-		const startIdx = cursorIndex + 1;
-		const batch = allKeys.slice(startIdx, startIdx + count);
-
-		// Use last key in batch as next cursor, or "0" if we're done
+		const startIndex = cursorIndex + 1;
+		const batch = allKeys.slice(startIndex, startIndex + count);
 		const nextCursor =
-			batch.length >= count && startIdx + count < allKeys.length
+			batch.length >= count && startIndex + count < allKeys.length
 				? (batch[batch.length - 1] ?? "0")
 				: "0";
 
@@ -120,10 +112,7 @@ class FakeRedisClient implements RedisClient {
 		switch (normalized) {
 			case "GET": {
 				const key = args[0];
-				if (!key) {
-					return null;
-				}
-				return this.get(key);
+				return key ? this.get(key) : null;
 			}
 			case "SET": {
 				const key = args[0];
@@ -149,6 +138,16 @@ class FakeRedisClient implements RedisClient {
 		}
 	};
 }
+
+const withoutScan = (redis: FakeRedisClient): RedisClient => ({
+	connect: redis.connect,
+	close: redis.close,
+	send: redis.send,
+	get: redis.get,
+	getBuffer: redis.getBuffer,
+	set: redis.set,
+	del: redis.del,
+});
 
 describe("buildUrl", () => {
 	it("builds url with user, password, database and tls", () => {
@@ -185,6 +184,79 @@ describe("buildUrl", () => {
 	});
 });
 
+describe("fromClientService", () => {
+	it("wraps connect and close in Effect", async () => {
+		const client = new FakeRedisClient();
+		const redis = fromClientService(client);
+
+		expect(client.connected).toBe(false);
+		await Effect.runPromise(redis.connect);
+		expect(client.connected).toBe(true);
+		await Effect.runPromise(redis.close);
+		expect(client.connected).toBe(false);
+	});
+
+	it("wraps get, getBuffer, set and del", async () => {
+		const client = new FakeRedisClient();
+		const redis = fromClientService(client);
+		const input = new Uint8Array([97, 98, 99]);
+
+		await Effect.runPromise(redis.set("session:1", "value-1"));
+		expect(await Effect.runPromise(redis.get("session:1"))).toBe("value-1");
+
+		await Effect.runPromise(redis.set("bin:1", input));
+		const binary = await Effect.runPromise(redis.getBuffer("bin:1"));
+		expect(Array.from(binary ?? [])).toEqual(Array.from(input));
+
+		expect(await Effect.runPromise(redis.del("session:1", "bin:1"))).toBe(2);
+		expect(await Effect.runPromise(redis.get("session:1"))).toBeNull();
+	});
+
+	it("wraps send", async () => {
+		const client = new FakeRedisClient();
+		const redis = fromClientService(client);
+
+		await Effect.runPromise(redis.send("SET", ["raw:key", "value"]));
+		const value = await Effect.runPromise(redis.send("GET", ["raw:key"]));
+
+		expect(value).toBe("value");
+		expect(client.sendCommands).toEqual(["SET", "GET"]);
+	});
+
+	it("uses client.scan when available", async () => {
+		const client = new FakeRedisClient();
+		const redis = fromClientService(client);
+
+		await Effect.runPromise(redis.set("user:1", "a"));
+		await Effect.runPromise(redis.set("user:2", "b"));
+
+		const [cursor, keys] = await Effect.runPromise(
+			redis.scan("0", "MATCH", "user:*", "COUNT", 10),
+		);
+
+		expect(cursor).toBe("0");
+		expect(keys).toEqual(["user:1", "user:2"]);
+		expect(client.scanCallCount).toBe(1);
+		expect(client.sendCommands).not.toContain("SCAN");
+	});
+
+	it("falls back to send for scan when the client does not expose scan", async () => {
+		const client = new FakeRedisClient();
+		const redis = fromClientService(withoutScan(client));
+
+		await Effect.runPromise(redis.set("user:1", "a"));
+		await Effect.runPromise(redis.set("user:2", "b"));
+
+		const [cursor, keys] = await Effect.runPromise(
+			redis.scan("0", "MATCH", "user:*", "COUNT", 10),
+		);
+
+		expect(cursor).toBe("0");
+		expect(keys).toEqual(["user:1", "user:2"]);
+		expect(client.sendCommands).toContain("SCAN");
+	});
+});
+
 describe("fromClient", () => {
 	it("supports set/get/remove", async () => {
 		const redis = new FakeRedisClient();
@@ -205,7 +277,7 @@ describe("fromClient", () => {
 	it("supports getUint8Array for binary values", async () => {
 		const redis = new FakeRedisClient();
 		const store = fromClient(redis);
-		const input = new Uint8Array([97, 98, 99]); // "abc"
+		const input = new Uint8Array([97, 98, 99]);
 
 		await Effect.runPromise(store.set("bin:1", input));
 		const found = await Effect.runPromise(store.getUint8Array("bin:1"));
@@ -233,7 +305,7 @@ describe("fromClient", () => {
 		expect(redis.delCalls.length).toBeGreaterThan(1);
 	});
 
-	it("size counts keys across scan pages", async () => {
+	it("size uses DBSIZE instead of scanning", async () => {
 		const redis = new FakeRedisClient();
 		const store = fromClient(redis, {
 			scanBatchSize: 2,
@@ -251,8 +323,9 @@ describe("fromClient", () => {
 		expect(redis.scanCallCount).toBe(0);
 	});
 
-	it("builds KeyValueStore from a provided BunRedisClient layer", async () => {
-		const redis = new FakeRedisClient();
+	it("builds KeyValueStore from a provided Redis service layer", async () => {
+		const client = new FakeRedisClient();
+		const redis = fromClientService(client);
 
 		const program = Effect.gen(function* () {
 			const store = yield* KeyValueStore.KeyValueStore;
@@ -261,10 +334,10 @@ describe("fromClient", () => {
 		}).pipe(
 			Effect.provide(
 				Layer.provide(
-					layerFromBunRedisClient({
+					layerFromRedis({
 						scanBatchSize: 2,
 					}),
-					Layer.succeed(BunRedisClientTag, redis as BunRedisClient),
+					Layer.succeed(Redis, redis),
 				),
 			),
 		);

@@ -40,19 +40,51 @@ export type RedisClient = Pick<
 	readonly scan?: BunRedisClient["scan"];
 };
 
-export const BunRedisClient = Context.GenericTag<BunRedisClient>(
-	"@vortexdd/effect-redis-bun/BunRedisClient",
-);
+type RedisKey = Parameters<RedisClient["get"]>[0];
+type RedisValue = Parameters<RedisClient["set"]>[1];
+
+export interface RedisService {
+	readonly connect: Effect.Effect<void, PlatformError.PlatformError>;
+	readonly close: Effect.Effect<void>;
+	readonly send: (
+		command: string,
+		args: Array<string>,
+	) => Effect.Effect<unknown, PlatformError.PlatformError>;
+	readonly get: (
+		key: RedisKey,
+	) => Effect.Effect<string | null, PlatformError.PlatformError>;
+	readonly getBuffer: (
+		key: RedisKey,
+	) => Effect.Effect<Uint8Array | null, PlatformError.PlatformError>;
+	readonly set: (
+		key: RedisKey,
+		value: RedisValue,
+		...options: Array<string | number>
+	) => Effect.Effect<"OK" | string | null, PlatformError.PlatformError>;
+	readonly del: (
+		...keys: Array<RedisKey>
+	) => Effect.Effect<number, PlatformError.PlatformError>;
+	readonly scan: (
+		cursor: string | number,
+		...options: Array<string | number>
+	) => Effect.Effect<[string, Array<string>], PlatformError.PlatformError>;
+}
+
+export class Redis extends Context.Tag("@vortexdd/effect-redis-bun/Redis")<
+	Redis,
+	RedisService
+>() {}
 
 const DEFAULT_SCAN_BATCH_SIZE = 200;
 const MAX_CLEAR_SWEEPS = 16;
+const PLATFORM_MODULE = "KeyValueStore";
 
 const toPlatformError = (
 	method: string,
 	cause: unknown,
 ): PlatformError.PlatformError =>
 	new PlatformError.SystemError({
-		module: "KeyValueStore",
+		module: PLATFORM_MODULE,
 		method,
 		reason: "Unknown",
 		cause,
@@ -94,23 +126,20 @@ const readScan = (value: unknown): [string, Array<string>] => {
 	return [cursor, keys];
 };
 
+const wrapPromise = <A>(
+	method: string,
+	tryFn: () => Promise<A>,
+): Effect.Effect<A, PlatformError.PlatformError> =>
+	Effect.tryPromise({
+		try: tryFn,
+		catch: (error) => toPlatformError(method, error),
+	});
+
 /**
  * Builds a Redis connection URL from configuration.
  *
  * @param config - Connection configuration
  * @returns Redis connection URL (e.g., "redis://localhost:6379/0" or "rediss://user:pass@host:6380/1")
- *
- * @example
- * ```typescript
- * const url = buildUrl({
- *   host: "localhost",
- *   port: 6379,
- *   password: "secret",
- *   database: 1,
- *   tls: true,
- * });
- * // => "rediss://:secret@localhost:6379/1"
- * ```
  */
 export const buildUrl = (config: ConnectionConfig): string => {
 	const username = readOptional(config.username);
@@ -134,16 +163,6 @@ export const buildUrl = (config: ConnectionConfig): string => {
  *
  * @param config - Connection configuration
  * @returns Bun Redis client instance (not yet connected)
- *
- * @example
- * ```typescript
- * const client = createClient({
- *   host: "localhost",
- *   port: 6379,
- *   password: "secret",
- * });
- * await client.connect();
- * ```
  */
 export const createClient = (config: ConnectionConfig): BunRedisClient =>
 	new Bun.RedisClient(buildUrl(config), {
@@ -153,108 +172,121 @@ export const createClient = (config: ConnectionConfig): BunRedisClient =>
 	});
 
 /**
- * Creates a KeyValueStore implementation from a Redis client.
+ * Creates an Effect-based Redis service from a client.
  *
- * @param client - Bun Redis client (should already be connected)
+ * @param client - Bun Redis client
+ * @returns Effect-based Redis service
+ */
+export const fromClientService = (client: RedisClient): RedisService => ({
+	connect: wrapPromise("connect", () => client.connect()),
+	close: Effect.sync(() => {
+		client.close();
+	}),
+	send: (command, args) =>
+		wrapPromise("send", () => client.send(command, args)),
+	get: (key) => wrapPromise("get", () => client.get(key)),
+	getBuffer: (key) => wrapPromise("getBuffer", () => client.getBuffer(key)),
+	set: (key, value, ...options) =>
+		wrapPromise(
+			"set",
+			async () =>
+				Reflect.apply(client.set, client, [key, value, ...options]) as Promise<
+					"OK" | string | null
+				>,
+		),
+	del: (...keys) => wrapPromise("del", () => client.del(...keys)),
+	scan: (cursor, ...options) => {
+		const scan = client.scan;
+		return scan
+			? wrapPromise(
+					"scan",
+					async () =>
+						Reflect.apply(scan, client, [cursor, ...options]) as Promise<
+							[string, Array<string>]
+						>,
+				)
+			: wrapPromise("scan", () =>
+					client
+						.send("SCAN", [
+							String(cursor),
+							...options.map((option) => String(option)),
+						])
+						.then(readScan),
+				);
+	},
+});
+
+/**
+ * Creates a KeyValueStore implementation from an Effect-based Redis service.
+ *
+ * @param redis - Effect-based Redis service
  * @param options - Optional configuration for scan operations
  * @returns KeyValueStore implementation
- *
- * @example
- * ```typescript
- * const client = createClient({ host: "localhost", port: 6379 });
- * await client.connect();
- * const store = fromClient(client, {
- *   scanBatchSize: 100,
- * });
- * ```
  */
-export const fromClient = (
-	client: RedisClient,
+export const fromService = (
+	redis: RedisService,
 	options?: { readonly scanBatchSize?: number },
 ): KeyValueStore.KeyValueStore => {
 	const scanBatchSize = options?.scanBatchSize ?? DEFAULT_SCAN_BATCH_SIZE;
 	const count = scanBatchSize > 0 ? scanBatchSize : DEFAULT_SCAN_BATCH_SIZE;
-	const getString = (key: string): Promise<string | null> => client.get(key);
-	const getBinary = (key: string): Promise<Uint8Array | null> =>
-		client.getBuffer(key);
-	const setValue = (
-		key: string,
-		value: string | Uint8Array,
-	): Promise<unknown> => client.set(key, value);
-	const delKeys = (keys: Array<string>): Promise<number> => client.del(...keys);
-	const scanKeys = (cursor: string): Promise<[string, Array<string>]> =>
-		client.scan
-			? client.scan(cursor, "MATCH", "*", "COUNT", count).then(readScan)
-			: client
-					.send("SCAN", [cursor, "MATCH", "*", "COUNT", count.toString()])
-					.then(readScan);
-	const getDbSize = (): Promise<number> =>
-		client.send("DBSIZE", []).then((value) => {
-			const parsed = typeof value === "number" ? value : Number(value);
-			if (!Number.isInteger(parsed) || parsed < 0) {
-				throw new TypeError(`Invalid DBSIZE response: ${String(value)}`);
-			}
-			return parsed;
-		});
+	const getDbSize = (): Effect.Effect<number, PlatformError.PlatformError> =>
+		redis.send("DBSIZE", []).pipe(
+			Effect.flatMap((value) => {
+				const parsed = typeof value === "number" ? value : Number(value);
+				if (!Number.isInteger(parsed) || parsed < 0) {
+					return Effect.fail(
+						toPlatformError(
+							"dbsize",
+							new TypeError(`Invalid DBSIZE response: ${String(value)}`),
+						),
+					);
+				}
+				return Effect.succeed(parsed);
+			}),
+		);
+
 	const impl: StringStoreImpl = {
 		get: (key) =>
-			Effect.tryPromise({
-				try: () => getString(key),
-				catch: (error) => toPlatformError("get", error),
-			}).pipe(Effect.map((value) => Option.fromNullable(value))),
+			redis.get(key).pipe(Effect.map((value) => Option.fromNullable(value))),
 		getUint8Array: (key) =>
-			Effect.tryPromise({
-				try: () => getBinary(key),
-				catch: (error) => toPlatformError("getUint8Array", error),
-			}).pipe(Effect.map((value) => Option.fromNullable(value))),
-		set: (key, value) =>
-			Effect.tryPromise({
-				try: () => setValue(key, value),
-				catch: (error) => toPlatformError("set", error),
-			}).pipe(Effect.asVoid),
-		remove: (key) =>
-			Effect.tryPromise({
-				try: () => delKeys([key]),
-				catch: (error) => toPlatformError("remove", error),
-			}).pipe(Effect.asVoid),
+			redis
+				.getBuffer(key)
+				.pipe(Effect.map((value) => Option.fromNullable(value ?? null))),
+		set: (key, value) => redis.set(key, value).pipe(Effect.asVoid),
+		remove: (key) => redis.del(key).pipe(Effect.asVoid),
 		clear: Effect.gen(function* () {
 			for (let sweep = 0; sweep < MAX_CLEAR_SWEEPS; sweep += 1) {
 				let cursor = "0";
 				do {
-					const [nextCursor, keys] = yield* Effect.tryPromise({
-						try: () => scanKeys(cursor),
-						catch: (error) => toPlatformError("clear.scan", error),
-					});
+					const [nextCursor, keys] = yield* redis.scan(
+						cursor,
+						"MATCH",
+						"*",
+						"COUNT",
+						count,
+					);
 					cursor = nextCursor;
 					if (keys.length > 0) {
-						yield* Effect.tryPromise({
-							try: () => delKeys(keys),
-							catch: (error) => toPlatformError("clear.del", error),
-						});
+						yield* redis.del(...keys);
 					}
 				} while (cursor !== "0");
 
-				const remaining = yield* Effect.tryPromise({
-					try: () => getDbSize(),
-					catch: (error) => toPlatformError("clear.dbsize", error),
-				});
-
+				const remaining = yield* getDbSize();
 				if (remaining === 0) {
 					return;
 				}
 			}
 
-			return yield* toPlatformError(
-				"clear",
-				new Error(
-					`Unable to clear Redis keys after ${MAX_CLEAR_SWEEPS} sweeps. Concurrent writes may still be in progress.`,
+			return yield* Effect.fail(
+				toPlatformError(
+					"clear",
+					new Error(
+						`Unable to clear Redis keys after ${MAX_CLEAR_SWEEPS} sweeps. Concurrent writes may still be in progress.`,
+					),
 				),
 			);
 		}),
-		size: Effect.tryPromise({
-			try: () => getDbSize(),
-			catch: (error) => toPlatformError("size", error),
-		}),
+		size: getDbSize(),
 	};
 
 	const maybeMakeStringOnly = (
@@ -272,15 +304,25 @@ export const fromClient = (
 	return KeyValueStore.make(impl);
 };
 
+/**
+ * Creates a KeyValueStore implementation from a Redis client.
+ *
+ * @param client - Bun Redis client
+ * @param options - Optional configuration for scan operations
+ * @returns KeyValueStore implementation
+ */
+export const fromClient = (
+	client: RedisClient,
+	options?: { readonly scanBatchSize?: number },
+): KeyValueStore.KeyValueStore =>
+	fromService(fromClientService(client), options);
+
 const acquireClient = (config: ConnectionConfig) =>
 	Effect.acquireRelease(
 		Effect.gen(function* () {
 			const redis = createClient(config);
-			yield* Effect.tryPromise({
-				try: () => redis.connect(),
-				catch: (error) => toPlatformError("connect", error),
-			});
-			return redis as BunRedisClient;
+			yield* wrapPromise("connect", () => redis.connect());
+			return redis as RedisClient;
 		}),
 		(redis) =>
 			Effect.sync(() => {
@@ -289,68 +331,44 @@ const acquireClient = (config: ConnectionConfig) =>
 	);
 
 /**
- * Creates an Effect Layer that provides Bun's full Redis client.
- * Handles connection lifecycle automatically - the connection is established when the layer is built
- * and closed when the scope is finalized.
+ * Creates an Effect Layer that provides the Effect-based Redis service.
  *
  * @param config - Redis connection configuration
- * @returns Effect Layer providing Bun's Redis client
+ * @returns Effect Layer providing Redis
  */
-export const makeBunRedisClientLayer = (
+export const makeRedisLayer = (
 	config: ConnectionConfig,
-): Layer.Layer<BunRedisClient, PlatformError.PlatformError> =>
-	Layer.scoped(BunRedisClient, acquireClient(config));
+): Layer.Layer<Redis, PlatformError.PlatformError> =>
+	Layer.scoped(Redis, Effect.map(acquireClient(config), fromClientService));
 
 /**
- * Creates an Effect Layer that derives a KeyValueStore from an already-provided Bun Redis client.
+ * Creates an Effect Layer that derives a KeyValueStore from an already-provided Redis service.
  *
  * @param options - Optional configuration for scan operations
- * @returns Effect Layer providing KeyValueStore, requiring BunRedisClient
+ * @returns Effect Layer providing KeyValueStore, requiring Redis
  */
-export const layerFromBunRedisClient = (options?: {
+export const layerFromRedis = (options?: {
 	readonly scanBatchSize?: number;
-}): Layer.Layer<KeyValueStore.KeyValueStore, never, BunRedisClient> =>
+}): Layer.Layer<KeyValueStore.KeyValueStore, never, Redis> =>
 	Layer.effect(
 		KeyValueStore.KeyValueStore,
-		Effect.map(BunRedisClient, (client) => fromClient(client, options)),
+		Effect.map(Redis, (redis) => fromService(redis, options)),
 	);
 
 /**
- * Creates an Effect Layer that provides a KeyValueStore implementation using Bun's Redis client.
- * Handles connection lifecycle automatically - the connection is established when the layer is built
- * and closed when the scope is finalized.
+ * Creates an Effect Layer that provides a KeyValueStore backed by Redis.
  *
  * @param config - Redis connection configuration
  * @returns Effect Layer providing KeyValueStore
- *
- * @example
- * ```typescript
- * import { Effect } from "effect";
- * import { KeyValueStore } from "@effect/platform";
- * import { makeLayer } from "@vortexdd/effect-redis-bun";
- *
- * const RedisLive = makeLayer({
- *   host: "localhost",
- *   port: 6379,
- *   password: "secret",
- * });
- *
- * const program = Effect.gen(function* () {
- *   const store = yield* KeyValueStore.KeyValueStore;
- *   yield* store.set("key", "value");
- * });
- *
- * Effect.runPromise(program.pipe(Effect.provide(RedisLive)));
- * ```
  */
 export const makeKeyValueStoreLayer = (
 	config: ConnectionConfig,
 ): Layer.Layer<KeyValueStore.KeyValueStore, PlatformError.PlatformError> =>
 	Layer.provide(
-		layerFromBunRedisClient({
+		layerFromRedis({
 			scanBatchSize: config.scanBatchSize,
 		}),
-		makeBunRedisClientLayer(config),
+		makeRedisLayer(config),
 	);
 
 export const makeLayer = makeKeyValueStoreLayer;

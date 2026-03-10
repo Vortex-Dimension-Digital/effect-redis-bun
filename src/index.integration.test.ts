@@ -1,12 +1,72 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { RedisClient } from "bun";
 import { Effect, Option } from "effect";
-import { fromClient } from "./index";
+import { fromClient, fromClientService } from "./index";
 
 const redisUrl = process.env.REDIS_URL;
 const allowDestructive = process.env.REDIS_ALLOW_DESTRUCTIVE === "1";
 
 const integrationDescribe = redisUrl ? describe : describe.skip;
+
+integrationDescribe("fromClientService integration (real redis)", () => {
+	let client: RedisClient | undefined;
+
+	afterEach(() => {
+		client?.close();
+		client = undefined;
+	});
+
+	it("supports connect, set, get, getBuffer and del", async () => {
+		if (!redisUrl) {
+			return;
+		}
+
+		client = new RedisClient(redisUrl, {
+			enableOfflineQueue: false,
+		});
+		const redis = fromClientService(client);
+		const key = `svc:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+		const binaryKey = `${key}:bin`;
+		const input = new Uint8Array([1, 2, 3, 255]);
+
+		await Effect.runPromise(redis.connect);
+		await Effect.runPromise(redis.set(key, "value-1"));
+		expect(await Effect.runPromise(redis.get(key))).toBe("value-1");
+
+		await Effect.runPromise(redis.set(binaryKey, input));
+		const found = await Effect.runPromise(redis.getBuffer(binaryKey));
+		expect(Array.from(found ?? [])).toEqual(Array.from(input));
+
+		expect(await Effect.runPromise(redis.del(key, binaryKey))).toBe(2);
+		expect(await Effect.runPromise(redis.get(key))).toBeNull();
+	});
+
+	it("supports send and scan", async () => {
+		if (!redisUrl) {
+			return;
+		}
+
+		client = new RedisClient(redisUrl, {
+			enableOfflineQueue: false,
+		});
+		const redis = fromClientService(client);
+		const prefix = `scan:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+		const keys = [`${prefix}:1`, `${prefix}:2`, `${prefix}:3`];
+
+		await Effect.runPromise(redis.connect);
+		for (const key of keys) {
+			await Effect.runPromise(redis.send("SET", [key, key]));
+		}
+
+		const [, found] = await Effect.runPromise(
+			redis.scan("0", "MATCH", `${prefix}:*`, "COUNT", 20),
+		);
+		expect(found.sort()).toEqual(keys.sort());
+
+		await Effect.runPromise(redis.del(...keys));
+		await Effect.runPromise(redis.close);
+	});
+});
 
 integrationDescribe("fromClient integration (real redis)", () => {
 	let client: RedisClient | undefined;
