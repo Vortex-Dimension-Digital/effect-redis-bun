@@ -1,6 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { Effect, Option } from "effect";
-import { buildUrl, fromClient, type RedisClient } from "./index";
+import { KeyValueStore } from "@effect/platform";
+import type { RedisClient as BunRedisClient } from "bun";
+import { Effect, Layer, Option } from "effect";
+import {
+	BunRedisClient as BunRedisClientTag,
+	buildUrl,
+	fromClient,
+	layerFromBunRedisClient,
+	type RedisClient,
+} from "./index";
 
 class FakeRedisClient implements RedisClient {
 	private readonly store = new Map<string, string>();
@@ -241,5 +249,30 @@ describe("fromClient", () => {
 		expect(size).toBe(5);
 		expect(redis.sendCommands).toContain("DBSIZE");
 		expect(redis.scanCallCount).toBe(0);
+	});
+
+	it("builds KeyValueStore from a provided BunRedisClient layer", async () => {
+		const redis = new FakeRedisClient();
+
+		const program = Effect.gen(function* () {
+			const store = yield* KeyValueStore.KeyValueStore;
+			yield* store.set("layer:key", "value");
+			return yield* store.get("layer:key");
+		}).pipe(
+			Effect.provide(
+				Layer.provide(
+					layerFromBunRedisClient({
+						scanBatchSize: 2,
+					}),
+					Layer.succeed(BunRedisClientTag, redis as BunRedisClient),
+				),
+			),
+		);
+
+		const found = await Effect.runPromise(program);
+		expect(Option.isSome(found)).toBe(true);
+		if (Option.isSome(found)) {
+			expect(found.value).toBe("value");
+		}
 	});
 });

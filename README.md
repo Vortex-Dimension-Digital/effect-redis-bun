@@ -140,6 +140,31 @@ const store = fromClient(client, {
 // Use store with Effect...
 ```
 
+### Using the Full Bun Client in Effect
+
+If you need Redis commands beyond `KeyValueStore`, the library also exposes the full Bun client as a service:
+
+```typescript
+import {
+  BunRedisClient,
+  makeBunRedisClientLayer,
+} from "@vortexdd/effect-redis-bun";
+import { Effect } from "effect";
+
+const BunRedisLive = makeBunRedisClientLayer({
+  host: "localhost",
+  port: 6379,
+});
+
+const program = Effect.gen(function* () {
+  const client = yield* BunRedisClient;
+  const pong = yield* Effect.tryPromise(() => client.send("PING", []));
+  console.log(pong);
+});
+
+Effect.runPromise(program.pipe(Effect.provide(BunRedisLive)));
+```
+
 ### Connection Configuration
 
 ```typescript
@@ -295,11 +320,29 @@ Creates an Effect Layer that provides a `KeyValueStore` implementation. Handles 
 
 **Returns:** `Layer<KeyValueStore, PlatformError>`
 
+### `makeKeyValueStoreLayer(config: ConnectionConfig)`
+
+Explicit name for `makeLayer`. Creates a `KeyValueStore` layer backed by Bun Redis.
+
+**Returns:** `Layer<KeyValueStore, PlatformError>`
+
+### `makeBunRedisClientLayer(config: ConnectionConfig)`
+
+Creates an Effect Layer that provides Bun's full `RedisClient`.
+
+**Returns:** `Layer<BunRedisClient, PlatformError>`
+
+### `layerFromBunRedisClient(options?)`
+
+Creates a `KeyValueStore` layer from an already-provided `BunRedisClient` service.
+
+**Returns:** `Layer<KeyValueStore, never, BunRedisClient>`
+
 ### `createClient(config: ConnectionConfig)`
 
 Creates a raw Bun Redis client instance.
 
-**Returns:** `RedisClient`
+**Returns:** `BunRedisClient`
 
 ### `fromClient(client: RedisClient, options?)`
 

@@ -1,6 +1,6 @@
 {
 	"name": "@vortexdd/effect-redis-bun",
-	"version": "1.0.6",
+	"version": "1.1.0",
 	"description": "Effect KeyValueStore implementation using Bun's native Redis client",
 	"type": "module",
 	"main": "./dist/index.js",

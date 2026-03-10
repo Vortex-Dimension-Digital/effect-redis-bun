@@ -30,7 +30,8 @@ jobs:
 
       - name: Check for lockfile changes
         run: |
-          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "bun.lock"; then
+          if git rev-parse --verify "origin/${{ github.base_ref }}" >/dev/null 2>&1 && \
+             git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q "bun.lock"; then
             echo "✓ Lockfile changes detected"
           fi
 

@@ -1,6 +1,8 @@
 import { KeyValueStore, Error as PlatformError } from "@effect/platform";
-import type { RedisClient as BunRedisClient } from "bun";
-import { Effect, Layer, Option } from "effect";
+import type { RedisClient as BunRedisClientType } from "bun";
+import { Context, Effect, Layer, Option } from "effect";
+
+export type BunRedisClient = BunRedisClientType;
 
 /**
  * Configuration for connecting to a Redis or Valkey server.
@@ -37,6 +39,10 @@ export type RedisClient = Pick<
 > & {
 	readonly scan?: BunRedisClient["scan"];
 };
+
+export const BunRedisClient = Context.GenericTag<BunRedisClient>(
+	"@vortexdd/effect-redis-bun/BunRedisClient",
+);
 
 const DEFAULT_SCAN_BATCH_SIZE = 200;
 const MAX_CLEAR_SWEEPS = 16;
@@ -139,7 +145,7 @@ export const buildUrl = (config: ConnectionConfig): string => {
  * await client.connect();
  * ```
  */
-export const createClient = (config: ConnectionConfig): RedisClient =>
+export const createClient = (config: ConnectionConfig): BunRedisClient =>
 	new Bun.RedisClient(buildUrl(config), {
 		connectionTimeout: config.connectTimeoutMs ?? 5000,
 		enableOfflineQueue: false,
@@ -266,6 +272,49 @@ export const fromClient = (
 	return KeyValueStore.make(impl);
 };
 
+const acquireClient = (config: ConnectionConfig) =>
+	Effect.acquireRelease(
+		Effect.gen(function* () {
+			const redis = createClient(config);
+			yield* Effect.tryPromise({
+				try: () => redis.connect(),
+				catch: (error) => toPlatformError("connect", error),
+			});
+			return redis as BunRedisClient;
+		}),
+		(redis) =>
+			Effect.sync(() => {
+				redis.close();
+			}),
+	);
+
+/**
+ * Creates an Effect Layer that provides Bun's full Redis client.
+ * Handles connection lifecycle automatically - the connection is established when the layer is built
+ * and closed when the scope is finalized.
+ *
+ * @param config - Redis connection configuration
+ * @returns Effect Layer providing Bun's Redis client
+ */
+export const makeBunRedisClientLayer = (
+	config: ConnectionConfig,
+): Layer.Layer<BunRedisClient, PlatformError.PlatformError> =>
+	Layer.scoped(BunRedisClient, acquireClient(config));
+
+/**
+ * Creates an Effect Layer that derives a KeyValueStore from an already-provided Bun Redis client.
+ *
+ * @param options - Optional configuration for scan operations
+ * @returns Effect Layer providing KeyValueStore, requiring BunRedisClient
+ */
+export const layerFromBunRedisClient = (options?: {
+	readonly scanBatchSize?: number;
+}): Layer.Layer<KeyValueStore.KeyValueStore, never, BunRedisClient> =>
+	Layer.effect(
+		KeyValueStore.KeyValueStore,
+		Effect.map(BunRedisClient, (client) => fromClient(client, options)),
+	);
+
 /**
  * Creates an Effect Layer that provides a KeyValueStore implementation using Bun's Redis client.
  * Handles connection lifecycle automatically - the connection is established when the layer is built
@@ -294,29 +343,14 @@ export const fromClient = (
  * Effect.runPromise(program.pipe(Effect.provide(RedisLive)));
  * ```
  */
-export const makeLayer = (
+export const makeKeyValueStoreLayer = (
 	config: ConnectionConfig,
 ): Layer.Layer<KeyValueStore.KeyValueStore, PlatformError.PlatformError> =>
-	Layer.scoped(
-		KeyValueStore.KeyValueStore,
-		Effect.gen(function* () {
-			const client = yield* Effect.acquireRelease(
-				Effect.gen(function* () {
-					const redis = createClient(config);
-					yield* Effect.tryPromise({
-						try: () => redis.connect(),
-						catch: (error) => toPlatformError("connect", error),
-					});
-					return redis;
-				}),
-				(redis) =>
-					Effect.sync(() => {
-						redis.close();
-					}),
-			);
-
-			return fromClient(client, {
-				scanBatchSize: config.scanBatchSize,
-			});
+	Layer.provide(
+		layerFromBunRedisClient({
+			scanBatchSize: config.scanBatchSize,
 		}),
+		makeBunRedisClientLayer(config),
 	);
+
+export const makeLayer = makeKeyValueStoreLayer;
