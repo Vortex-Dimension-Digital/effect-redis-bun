@@ -57,11 +57,11 @@
 	},
 	"dependencies": {},
 	"devDependencies": {
-		"@biomejs/biome": "2.4.8",
-		"@effect/language-service": "0.83.1",
+		"@biomejs/biome": "2.4.12",
+		"@effect/language-service": "0.85.1",
 		"@effect/platform": "0.96.0",
-		"@types/bun": "1.3.11",
-		"effect": "3.21.0",
+		"@types/bun": "1.3.12",
+		"effect": "3.21.1",
 		"typescript": "5.9.3"
 	},
 	"engines": {
