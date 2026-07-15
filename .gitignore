@@ -17,7 +17,6 @@ coverage/
 .env.*.local
 
 # Editors
-.vscode/
 .idea/
 *.swp
 *.swo

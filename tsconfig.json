@@ -1,20 +1,20 @@
 {
+	"$schema": "./node_modules/@effect/tsgo/schema.json",
 	"compilerOptions": {
 		// Environment setup & latest features
 		"lib": ["ESNext"],
 		"target": "ESNext",
 		"module": "Preserve",
 		"moduleDetection": "force",
-		"jsx": "react-jsx",
-		"allowJs": true,
+		"types": ["bun"],
 		// Bundler mode
 		"moduleResolution": "bundler",
-		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
 		// Declaration output for library
 		"declaration": true,
 		"declarationMap": true,
 		"emitDeclarationOnly": true,
+		"rootDir": "./src",
 		"outDir": "./dist",
 		// Best practices
 		"strict": true,
@@ -23,15 +23,15 @@
 		"noUncheckedIndexedAccess": true,
 		"noImplicitOverride": true,
 		// Some stricter flags (disabled by default)
-		"noUnusedLocals": false,
-		"noUnusedParameters": false,
-		"noPropertyAccessFromIndexSignature": false,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noPropertyAccessFromIndexSignature": true,
 		"plugins": [
 			{
 				"name": "@effect/language-service"
 			}
 		]
 	},
-	"include": ["src/**/*"],
-	"exclude": ["node_modules", "dist", "**/*.test.ts"]
+	"include": ["src"],
+	"exclude": ["src/**/*.test.ts"]
 }

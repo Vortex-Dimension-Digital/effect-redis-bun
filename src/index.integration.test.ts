@@ -3,8 +3,9 @@ import { RedisClient } from "bun";
 import { Effect, Option } from "effect";
 import { fromClient, fromClientService } from "./index";
 
-const redisUrl = process.env.REDIS_URL;
-const allowDestructive = process.env.REDIS_ALLOW_DESTRUCTIVE === "1";
+const { REDIS_URL: redisUrl, REDIS_ALLOW_DESTRUCTIVE: destructiveFlag } =
+	Bun.env;
+const allowDestructive = destructiveFlag === "1";
 
 const integrationDescribe = redisUrl ? describe : describe.skip;
 
@@ -65,6 +66,30 @@ integrationDescribe("fromClientService integration (real redis)", () => {
 
 		await Effect.runPromise(redis.del(...keys));
 		await Effect.runPromise(redis.close);
+	});
+
+	it("classifies a real server error reply", async () => {
+		if (!redisUrl) {
+			return;
+		}
+
+		client = new RedisClient(redisUrl, {
+			enableOfflineQueue: false,
+		});
+		const redis = fromClientService(client);
+
+		await Effect.runPromise(redis.connect);
+		const error = await Effect.runPromise(Effect.flip(redis.send("GET", [])));
+
+		expect(error._tag).toBe("RedisCommandError");
+		if (error._tag === "RedisCommandError") {
+			expect(error.command).toBe("GET");
+			expect(error.code).toBe("ERR");
+			expect(error.message).toContain("wrong number of arguments");
+			expect((error.cause as { code?: string }).code).toBe(
+				"ERR_REDIS_INVALID_RESPONSE",
+			);
+		}
 	});
 });
 
