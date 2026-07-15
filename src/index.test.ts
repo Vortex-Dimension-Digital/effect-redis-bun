@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { KeyValueStore } from "@effect/platform";
+import { KeyValueStore, Error as PlatformError } from "@effect/platform";
 import { Effect, Layer, Option } from "effect";
 import {
 	buildUrl,
@@ -9,6 +9,8 @@ import {
 	Redis,
 	type RedisClient,
 } from "./index";
+
+type RedisKey = Parameters<RedisClient["get"]>[0];
 
 class FakeRedisClient implements RedisClient {
 	private readonly store = new Map<string, string>();
@@ -21,6 +23,15 @@ class FakeRedisClient implements RedisClient {
 	connected = false;
 
 	private getSortedKeys = () => Array.from(this.store.keys()).sort();
+	private toString = async (value: RedisKey): Promise<string> => {
+		if (typeof value === "string") {
+			return value;
+		}
+		if (value instanceof Blob) {
+			return value.text();
+		}
+		return this.decoder.decode(value);
+	};
 
 	connect = async (): Promise<void> => {
 		this.connected = true;
@@ -30,29 +41,24 @@ class FakeRedisClient implements RedisClient {
 		this.connected = false;
 	};
 
-	get = async (key: string): Promise<string | null> =>
-		this.store.get(key) ?? null;
+	get: RedisClient["get"] = async (key) =>
+		this.store.get(await this.toString(key)) ?? null;
 
-	getBuffer = async (key: string): Promise<Uint8Array | null> => {
-		const value = this.store.get(key);
+	getBuffer: RedisClient["getBuffer"] = async (key) => {
+		const value = this.store.get(await this.toString(key));
 		return value === undefined ? null : this.encoder.encode(value);
 	};
 
-	set = async (
-		key: string,
-		value: string | Uint8Array,
-	): Promise<"OK" | null | string> => {
-		this.store.set(
-			key,
-			typeof value === "string" ? value : this.decoder.decode(value),
-		);
+	set: RedisClient["set"] = async (key, value) => {
+		this.store.set(await this.toString(key), await this.toString(value));
 		return "OK";
 	};
 
-	del = async (...keys: Array<string>): Promise<number> => {
-		this.delCalls.push(keys);
+	del: RedisClient["del"] = async (...keys) => {
+		const normalizedKeys = await Promise.all(keys.map(this.toString));
+		this.delCalls.push(normalizedKeys);
 		let deleted = 0;
-		for (const key of keys) {
+		for (const key of normalizedKeys) {
 			if (this.store.delete(key)) {
 				deleted += 1;
 			}
@@ -254,6 +260,197 @@ describe("fromClientService", () => {
 		expect(cursor).toBe("0");
 		expect(keys).toEqual(["user:1", "user:2"]);
 		expect(client.sendCommands).toContain("SCAN");
+	});
+});
+
+const failingClient = (error: unknown): RedisClient => ({
+	connect: async () => {
+		throw error;
+	},
+	close: () => {},
+	send: async () => {
+		throw error;
+	},
+	get: async () => {
+		throw error;
+	},
+	getBuffer: async () => {
+		throw error;
+	},
+	set: async () => {
+		throw error;
+	},
+	del: async () => {
+		throw error;
+	},
+});
+
+const codedError = (message: string, code: string): Error & { code: string } =>
+	Object.assign(new Error(message), { code });
+
+describe("error classification", () => {
+	it("maps Bun server replies to RedisCommandError with the parsed reply code", async () => {
+		const cause = codedError(
+			"ERR value is not an integer or out of range",
+			"ERR_REDIS_INVALID_RESPONSE",
+		);
+		const redis = fromClientService(failingClient(cause));
+
+		const error = await Effect.runPromise(
+			Effect.flip(redis.send("INCR", ["key"])),
+		);
+
+		expect(error._tag).toBe("RedisCommandError");
+		if (error._tag === "RedisCommandError") {
+			expect(error.command).toBe("INCR");
+			expect(error.code).toBe("ERR");
+			expect(error.message).toBe("value is not an integer or out of range");
+			expect(error.cause).toBe(cause);
+		}
+	});
+
+	it("parses non-ERR reply codes like WRONGTYPE", async () => {
+		const cause = codedError(
+			"WRONGTYPE Operation against a key holding the wrong kind of value",
+			"ERR_REDIS_INVALID_RESPONSE",
+		);
+		const redis = fromClientService(failingClient(cause));
+
+		const error = await Effect.runPromise(Effect.flip(redis.get("key")));
+
+		expect(error._tag).toBe("RedisCommandError");
+		if (error._tag === "RedisCommandError") {
+			expect(error.command).toBe("GET");
+			expect(error.code).toBe("WRONGTYPE");
+		}
+	});
+
+	it("supports clients that do not expose an error code", async () => {
+		const redis = fromClientService(
+			failingClient(new Error("NOAUTH Authentication required.")),
+		);
+
+		const error = await Effect.runPromise(Effect.flip(redis.get("key")));
+
+		expect(error._tag).toBe("RedisCommandError");
+		if (error._tag === "RedisCommandError") {
+			expect(error.code).toBe("NOAUTH");
+			expect(error.message).toBe("Authentication required.");
+		}
+	});
+
+	it("maps Bun transport failures to RedisConnectionError", async () => {
+		const cause = codedError(
+			"Connection closed",
+			"ERR_REDIS_CONNECTION_CLOSED",
+		);
+		const redis = fromClientService(failingClient(cause));
+
+		const error = await Effect.runPromise(
+			Effect.flip(redis.set("key", "value")),
+		);
+
+		expect(error._tag).toBe("RedisConnectionError");
+		if (error._tag === "RedisConnectionError") {
+			expect(error.command).toBe("SET");
+			expect(error.code).toBe("ERR_REDIS_CONNECTION_CLOSED");
+			expect(error.message).toBe("Connection closed");
+			expect(error.cause).toBe(cause);
+		}
+	});
+
+	it("uses the client error code to reject reply-looking transport errors", async () => {
+		const cause = codedError("ECONNREFUSED Connection refused", "ECONNREFUSED");
+		const redis = fromClientService(failingClient(cause));
+
+		const error = await Effect.runPromise(Effect.flip(redis.get("key")));
+
+		expect(error._tag).toBe("RedisConnectionError");
+		if (error._tag === "RedisConnectionError") {
+			expect(error.code).toBe("ECONNREFUSED");
+			expect(error.message).toBe("ECONNREFUSED Connection refused");
+		}
+	});
+
+	it("accepts code-only replies when the client code confirms them", async () => {
+		const cause = codedError("TIMEOUT", "ERR_REDIS_INVALID_RESPONSE");
+		const redis = fromClientService(failingClient(cause));
+
+		const error = await Effect.runPromise(Effect.flip(redis.get("key")));
+
+		expect(error._tag).toBe("RedisCommandError");
+		if (error._tag === "RedisCommandError") {
+			expect(error.code).toBe("TIMEOUT");
+			expect(error.message).toBe("");
+		}
+	});
+
+	it("treats code-less bare-token errors as connection failures", async () => {
+		for (const message of ["TIMEOUT", "TIMEOUT "]) {
+			const redis = fromClientService(failingClient(new Error(message)));
+
+			const error = await Effect.runPromise(Effect.flip(redis.get("key")));
+
+			expect(error._tag).toBe("RedisConnectionError");
+			if (error._tag === "RedisConnectionError") {
+				expect(error.code).toBeUndefined();
+				expect(error.message).toBe(message);
+			}
+		}
+	});
+
+	it("always maps connect failures to RedisConnectionError", async () => {
+		const redis = fromClientService(
+			failingClient(
+				codedError(
+					"ERR invalid username-password pair",
+					"ERR_REDIS_AUTHENTICATION_FAILED",
+				),
+			),
+		);
+
+		const error = await Effect.runPromise(Effect.flip(redis.connect));
+
+		expect(error._tag).toBe("RedisConnectionError");
+		if (error._tag === "RedisConnectionError") {
+			expect(error.command).toBe("CONNECT");
+			expect(error.code).toBe("ERR_REDIS_AUTHENTICATION_FAILED");
+		}
+	});
+
+	it("keeps the KeyValueStore contract on PlatformError with the RedisError as cause", async () => {
+		const store = fromClient(
+			failingClient(new Error("ERR something went wrong")),
+		);
+
+		const error = await Effect.runPromise(Effect.flip(store.get("key")));
+
+		expect(PlatformError.isPlatformError(error)).toBe(true);
+		expect(error._tag).toBe("SystemError");
+		if (error._tag === "SystemError") {
+			expect(error.method).toBe("get");
+		}
+		expect((error.cause as { _tag?: string } | undefined)?._tag).toBe(
+			"RedisCommandError",
+		);
+	});
+
+	it("attributes clear and size failures to the KeyValueStore method", async () => {
+		const store = fromClient(
+			failingClient(new Error("ERR something went wrong")),
+		);
+
+		const clearError = await Effect.runPromise(Effect.flip(store.clear));
+		const sizeError = await Effect.runPromise(Effect.flip(store.size));
+
+		expect(clearError._tag).toBe("SystemError");
+		if (clearError._tag === "SystemError") {
+			expect(clearError.method).toBe("clear");
+		}
+		expect(sizeError._tag).toBe("SystemError");
+		if (sizeError._tag === "SystemError") {
+			expect(sizeError.method).toBe("size");
+		}
 	});
 });
 

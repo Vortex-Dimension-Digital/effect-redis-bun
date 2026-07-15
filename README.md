@@ -202,12 +202,44 @@ interface ConnectionConfig {
 }
 ```
 
+## Error Handling
+
+Every fallible `Redis` operation fails with a typed `RedisError`:
+
+- **`RedisCommandError`** — the server rejected the command with an error reply. Carries `command`, the parsed reply `code` (`"ERR"`, `"WRONGTYPE"`, `"NOAUTH"`, `"MOVED"`, ...), the reply `message`, and the original error as `cause`.
+- **`RedisConnectionError`** — the command never got a server reply (connection refused/closed, timeout, authentication, client-side, or transport failure). Carries `command`, the underlying client `code` when available, `message`, and `cause`. `connect` always uses this error type.
+
+```ts
+import { Effect } from "effect";
+import { Redis } from "@vortexdd/effect-redis-bun";
+
+const readString = (key: string) =>
+  Effect.gen(function* () {
+    const redis = yield* Redis;
+    return yield* redis.get(key);
+  }).pipe(
+    Effect.catchTag("RedisCommandError", (error) =>
+      error.code === "WRONGTYPE" ? Effect.succeed(null) : Effect.fail(error),
+    ),
+  );
+```
+
+The `KeyValueStore` adapter and its layer keep their platform contract and fail with `PlatformError`; the underlying `RedisError` is preserved as `cause`.
+
 ## Notes
 
 - `makeRedisLayer` creates a ready-to-use service and closes the client when the layer scope ends.
 - `clear` uses `SCAN` in batches and avoids `KEYS *`.
 - `size` uses `DBSIZE` instead of scanning the full keyspace.
 - `scan` falls back to `send("SCAN", ...)` if the Bun client version does not expose `scan` directly.
+
+## Breaking Change From 2.x
+
+Version `3.x` replaces `PlatformError` with typed errors on the `Redis` service:
+
+- Redis commands fail with `RedisError` (`RedisCommandError | RedisConnectionError`) instead of `PlatformError.PlatformError`; `connect` and `makeRedisLayer` fail more specifically with `RedisConnectionError`.
+- `KeyValueStore` and `makeKeyValueStoreLayer` are unaffected — they still fail with `PlatformError`, now carrying the `RedisError` as `cause`.
+- If you matched on `SystemError` or dug through `error.cause` to read server error messages, switch to `Effect.catchTag("RedisCommandError", ...)` and the `code` field.
 
 ## Breaking Change From 1.x
 
