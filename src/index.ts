@@ -192,16 +192,37 @@ const DEFAULT_SCAN_BATCH_SIZE = 200;
 const MAX_CLEAR_SWEEPS = 16;
 const PLATFORM_MODULE = "KeyValueStore";
 
+type PlatformSystemErrorFactory = {
+	(properties: Record<string, unknown>): PlatformError.PlatformError;
+	new (properties: Record<string, unknown>): PlatformError.PlatformError;
+	readonly prototype?: object;
+};
+
 const toPlatformError = (
 	method: string,
 	cause: unknown,
-): PlatformError.PlatformError =>
-	new PlatformError.SystemError({
+): PlatformError.PlatformError => {
+	const SystemError =
+		PlatformError.SystemError as unknown as PlatformSystemErrorFactory;
+	const properties = {
 		module: PLATFORM_MODULE,
 		method,
 		reason: "Unknown",
 		cause,
-	});
+		description: errorMessage(cause),
+	};
+
+	// @effect/platform <= 0.52 exposes SystemError as a factory function;
+	// newer versions expose it as a class. Keep the peer dependency range
+	// working across both API shapes.
+	return SystemError.prototype === undefined
+		? SystemError({
+				...properties,
+				message: errorMessage(cause),
+				pathOrDescriptor: "",
+			})
+		: new SystemError(properties);
+};
 
 const readOptional = (value: string | undefined): string | undefined => {
 	if (!value) {
