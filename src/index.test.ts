@@ -312,6 +312,25 @@ describe("error classification", () => {
 		}
 	});
 
+	it("maps Bun 1.4 server replies (ERR_REDIS_SERVER_ERROR) to RedisCommandError", async () => {
+		const cause = codedError(
+			"WRONGTYPE Operation against a key holding the wrong kind of value",
+			"ERR_REDIS_SERVER_ERROR",
+		);
+		const redis = fromClientService(failingClient(cause));
+
+		const error = await Effect.runPromise(Effect.flip(redis.get("list-key")));
+
+		expect(error._tag).toBe("RedisCommandError");
+		if (error._tag === "RedisCommandError") {
+			expect(error.command).toBe("GET");
+			expect(error.code).toBe("WRONGTYPE");
+			expect(error.message).toBe(
+				"Operation against a key holding the wrong kind of value",
+			);
+		}
+	});
+
 	it("parses non-ERR reply codes like WRONGTYPE", async () => {
 		const cause = codedError(
 			"WRONGTYPE Operation against a key holding the wrong kind of value",

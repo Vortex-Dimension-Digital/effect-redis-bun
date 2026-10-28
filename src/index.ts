@@ -55,14 +55,15 @@ export class RedisConnectionError extends Data.TaggedError(
 
 export type RedisError = RedisCommandError | RedisConnectionError;
 
-// Bun currently reports RESP error replies with ERR_REDIS_INVALID_RESPONSE
-// while preserving the server's raw reply in `message`. Older Bun versions
-// and compatible clients may omit the client code, so parsing the reply is
-// still required as a fallback.
+// Bun reports RESP error replies with ERR_REDIS_SERVER_ERROR (1.4+) or
+// ERR_REDIS_INVALID_RESPONSE (earlier versions), keeping the server's raw
+// reply in `message`. Older Bun versions and compatible clients may omit the
+// client code, so parsing the reply is still required as a fallback.
 const BUN_REPLY_ERROR_CODES = new Set([
 	"ERR_REDIS_AUTHENTICATION_FAILED",
 	"ERR_REDIS_INVALID_COMMAND",
 	"ERR_REDIS_INVALID_RESPONSE",
+	"ERR_REDIS_SERVER_ERROR",
 ]);
 const ERROR_REPLY = /^([A-Z][A-Z0-9_-]*)(?:[ \t]+([\s\S]*))?$/;
 

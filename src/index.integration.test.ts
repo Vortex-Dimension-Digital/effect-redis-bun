@@ -86,9 +86,11 @@ integrationDescribe("fromClientService integration (real redis)", () => {
 			expect(error.command).toBe("GET");
 			expect(error.code).toBe("ERR");
 			expect(error.message).toContain("wrong number of arguments");
-			expect((error.cause as { code?: string }).code).toBe(
+			// ERR_REDIS_SERVER_ERROR on Bun 1.4+, ERR_REDIS_INVALID_RESPONSE before.
+			expect([
+				"ERR_REDIS_SERVER_ERROR",
 				"ERR_REDIS_INVALID_RESPONSE",
-			);
+			]).toContain((error.cause as { code?: string }).code);
 		}
 	});
 });
