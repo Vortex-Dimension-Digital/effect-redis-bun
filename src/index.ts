@@ -1,6 +1,17 @@
 import { KeyValueStore, Error as PlatformError } from "@effect/platform";
 import type { RedisClient as BunRedisClientType } from "bun";
-import { Context, Data, Effect, Layer, Option } from "effect";
+import {
+	Context,
+	Data,
+	Duration,
+	Effect,
+	Fiber,
+	Layer,
+	Option,
+	Queue,
+	Schedule,
+	type Scope,
+} from "effect";
 
 export type BunRedisClient = BunRedisClientType;
 
@@ -44,14 +55,15 @@ export class RedisConnectionError extends Data.TaggedError(
 
 export type RedisError = RedisCommandError | RedisConnectionError;
 
-// Bun currently reports RESP error replies with ERR_REDIS_INVALID_RESPONSE
-// while preserving the server's raw reply in `message`. Older Bun versions
-// and compatible clients may omit the client code, so parsing the reply is
-// still required as a fallback.
+// Bun reports RESP error replies with ERR_REDIS_SERVER_ERROR (1.4+) or
+// ERR_REDIS_INVALID_RESPONSE (earlier versions), keeping the server's raw
+// reply in `message`. Older Bun versions and compatible clients may omit the
+// client code, so parsing the reply is still required as a fallback.
 const BUN_REPLY_ERROR_CODES = new Set([
 	"ERR_REDIS_AUTHENTICATION_FAILED",
 	"ERR_REDIS_INVALID_COMMAND",
 	"ERR_REDIS_INVALID_RESPONSE",
+	"ERR_REDIS_SERVER_ERROR",
 ]);
 const ERROR_REPLY = /^([A-Z][A-Z0-9_-]*)(?:[ \t]+([\s\S]*))?$/;
 
@@ -473,21 +485,111 @@ export const fromClient = (
 ): KeyValueStore.KeyValueStore =>
 	fromService(fromClientService(client), options);
 
+/**
+ * Backoff for {@link keepConnected}: exponential from `initialDelayMs`,
+ * capped at `maxDelayMs`, retried until the connection comes back.
+ */
+export interface ReconnectOptions {
+	/** Delay before the first reconnection attempt. Defaults to 100ms. */
+	readonly initialDelayMs?: number;
+	/** Upper bound for the delay between attempts. Defaults to 5000ms. */
+	readonly maxDelayMs?: number;
+}
+
+/** The part of Bun's client that {@link keepConnected} needs. */
+export type ReconnectableClient = Pick<BunRedisClient, "connect"> & {
+	onclose: BunRedisClient["onclose"];
+};
+
+export interface KeepConnected {
+	/** Stops reconnecting; call it before closing the client on purpose. */
+	readonly stop: Effect.Effect<void>;
+}
+
+/**
+ * Keeps a Bun Redis client connected after Bun gives up reconnecting.
+ *
+ * Bun retries a dropped connection on its own, but only `maxRetries` times
+ * (about 30 seconds with the defaults). After that it fires `onclose` and the
+ * client stays closed even once the server is back: every command fails with
+ * `ERR_REDIS_CONNECTION_CLOSED`. This hooks `onclose` and keeps calling
+ * `connect()` with a capped exponential backoff until it succeeds.
+ *
+ * Bun fires `onclose` with the same error for an explicit `close()`, so call
+ * `stop` before closing the client on purpose. Closing the scope also stops it.
+ *
+ * @param client - Bun Redis client, already connected
+ * @param options - Backoff between reconnection attempts
+ * @returns A handle to stop reconnecting; reconnection runs in a fiber tied to the scope
+ */
+export const keepConnected = (
+	client: ReconnectableClient,
+	options?: ReconnectOptions,
+): Effect.Effect<KeepConnected, never, Scope.Scope> =>
+	Effect.gen(function* () {
+		const closed = yield* Queue.sliding<void>(1);
+		let stopped = false;
+		client.onclose = () => {
+			if (!stopped) {
+				Queue.unsafeOffer(closed, undefined);
+			}
+		};
+
+		const backoff = Schedule.exponential(
+			Duration.millis(options?.initialDelayMs ?? 100),
+		).pipe(
+			Schedule.union(
+				Schedule.spaced(Duration.millis(options?.maxDelayMs ?? 5000)),
+			),
+		);
+
+		const fiber = yield* Queue.take(closed).pipe(
+			Effect.zipRight(
+				wrapConnection("CONNECT", () => client.connect()).pipe(
+					Effect.retry(backoff),
+					Effect.ignore,
+				),
+			),
+			Effect.forever,
+			Effect.forkScoped,
+		);
+
+		const stop = Effect.suspend(() => {
+			stopped = true;
+			// A no-op rather than null: once a handler has been set, Bun (1.4)
+			// throws asynchronously from close() if onclose was reset to null.
+			client.onclose = () => {};
+			return Fiber.interrupt(fiber);
+		}).pipe(Effect.asVoid);
+		yield* Effect.addFinalizer(() => stop);
+
+		return { stop };
+	});
+
 const acquireClient = (config: ConnectionConfig) =>
-	Effect.acquireRelease(
-		Effect.gen(function* () {
-			const redis = createClient(config);
-			yield* wrapConnection("CONNECT", () => redis.connect());
-			return redis as RedisClient;
-		}),
-		(redis) =>
-			Effect.sync(() => {
-				redis.close();
+	Effect.gen(function* () {
+		const client = yield* Effect.acquireRelease(
+			Effect.gen(function* () {
+				const redis = createClient(config);
+				yield* wrapConnection("CONNECT", () => redis.connect());
+				return redis;
 			}),
-	);
+			(redis) =>
+				Effect.sync(() => {
+					redis.close();
+				}),
+		);
+		// Registered after the release above, so its finalizer runs first and the
+		// final close() is not taken for a dropped connection.
+		const reconnect = yield* keepConnected(client);
+		return { client, reconnect };
+	});
 
 /**
  * Creates an Effect Layer that provides the Effect-based Redis service.
+ *
+ * The client reconnects on its own after an outage longer than Bun's built-in
+ * retries (see {@link keepConnected}). The service's `close` stops that first.
  *
  * @param config - Redis connection configuration
  * @returns Effect Layer providing Redis
@@ -495,7 +597,16 @@ const acquireClient = (config: ConnectionConfig) =>
 export const makeRedisLayer = (
 	config: ConnectionConfig,
 ): Layer.Layer<Redis, RedisConnectionError> =>
-	Layer.scoped(Redis, Effect.map(acquireClient(config), fromClientService));
+	Layer.scoped(
+		Redis,
+		Effect.map(acquireClient(config), ({ client, reconnect }) => {
+			const service = fromClientService(client);
+			return {
+				...service,
+				close: Effect.zipRight(reconnect.stop, service.close),
+			};
+		}),
+	);
 
 /**
  * Creates an Effect Layer that derives a KeyValueStore from an already-provided Redis service.
