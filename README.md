@@ -91,18 +91,20 @@ const RedisLive = makeRedisLayer({
 const program = Effect.gen(function* () {
   const redis = yield* Redis;
 
-  yield* redis.connect;
-  yield* redis.set("raw:key", "value");
+  yield* redis.set("raw:key", "value", "EX", 60);
   const value = yield* redis.get("raw:key");
   const scan = yield* redis.scan("0", "MATCH", "raw:*", "COUNT", 50);
-  yield* redis.del("raw:key");
-  yield* redis.close;
+  const counter = yield* redis.send("INCR", ["raw:counter"]);
+  yield* redis.del("raw:key", "raw:counter");
 
-  return { value, scan };
+  return { value, scan, counter };
 });
 
 await Effect.runPromise(program.pipe(Effect.provide(RedisLive)));
 ```
+
+The layer connects when it is built and closes the client when its scope ends, so the
+program does not call `connect` or `close` itself.
 
 ### Build from an Existing Bun Client
 
@@ -127,6 +129,7 @@ Add it with `keepConnected` inside a scope:
 import { Effect } from "effect";
 import { keepConnected } from "@vortexdd/effect-redis-bun";
 
+// `client` and `redis` from the example above
 const program = Effect.scoped(
   Effect.gen(function* () {
     yield* redis.connect;
@@ -142,12 +145,18 @@ const program = Effect.scoped(
 
 ```ts
 import { KeyValueStore } from "@effect/platform";
+import { RedisClient } from "bun";
 import { Effect, Layer } from "effect";
 import {
   fromClientService,
   layerFromRedis,
   Redis,
 } from "@vortexdd/effect-redis-bun";
+
+const client = new RedisClient("redis://localhost:6379/0", {
+  enableOfflineQueue: false,
+});
+await client.connect();
 
 const program = Effect.gen(function* () {
   const store = yield* KeyValueStore.KeyValueStore;
@@ -261,9 +270,25 @@ The `KeyValueStore` adapter and its layer keep their platform contract and fail 
 ## Notes
 
 - `makeRedisLayer` creates a ready-to-use service, reconnects it after long outages and closes the client when the layer scope ends.
-- `clear` uses `SCAN` in batches and avoids `KEYS *`.
+- `KeyValueStore` stores `Uint8Array` values as raw bytes, and `getUint8Array` returns the stored bytes of any value (a string's UTF-8 bytes).
+- `clear` uses `SCAN` in batches and avoids `KEYS *`. `clear` and `size` act on the whole selected database.
 - `size` uses `DBSIZE` instead of scanning the full keyspace.
 - `scan` falls back to `send("SCAN", ...)` if the Bun client version does not expose `scan` directly.
+
+## Upgrading to 3.1
+
+Before 3.1.0, with `@effect/platform` 0.63 or newer, the `KeyValueStore` adapter stored `Uint8Array`
+values as base64 text and `getUint8Array` base64-decoded whatever it read. It now stores and reads raw
+bytes, so other Redis clients see the same bytes. String values are unaffected.
+
+Binary values written through `KeyValueStore.set` by an earlier version are still base64 text in Redis:
+`getUint8Array` now returns those base64 characters. Rewrite them, or decode them once, for example with
+`Encoding.decodeBase64` from `effect` on the result of `store.get(key)`.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Development uses Bun pinned with [mise](https://mise.jdx.dev),
+`bun fmt`, [oxlint](https://oxc.rs/docs/guide/usage/linter) and [tsrs](https://github.com/oxc-project/tsrs).
 
 ## Breaking Change From 2.x
 
