@@ -22,7 +22,6 @@ Without mise, install the Bun version from `mise.toml` yourself.
 | Format ([`bun fmt`](https://bun.com/docs/format))       | `bun run format` (`bun fmt --check` to only check)             |
 | Lint ([oxlint](https://oxc.rs/docs/guide/usage/linter)) | `bun run lint`                                                 |
 | Type check with Effect diagnostics (`tsc`)              | `bun run typecheck`                                            |
-| Type check, as CI does                                  | `bun check`                                                    |
 | Unit tests                                              | `bun test`                                                     |
 | Integration tests                                       | `REDIS_URL=redis://127.0.0.1:6379/15 bun run test:integration` |
 | Build (`bun build` + `.d.ts` from `tsc`)                | `bun run build`                                                |
@@ -32,9 +31,8 @@ There are no config files for the formatter or the linter: both run with their d
 `tsc` is TypeScript 7 (tsgo). `bun install` runs `effect-tsgo patch`, which adds the
 [Effect language service](https://github.com/Effect-TS/tsgo) to it, so `tsc` and the editor report
 Effect diagnostics (floating effects, `yield` without `*`, ...). In VS Code, install the TypeScript 7
-extension (`TypeScriptTeam.native-preview`) and use the workspace version. CI type checks with
-`bun check`, which is faster but does not load the Effect plugin, so run `bun run typecheck` before
-pushing.
+extension (`TypeScriptTeam.native-preview`) and use the workspace version. CI runs the same `tsc`, so
+Effect diagnostics fail the build there too.
 
 ### Integration tests
 

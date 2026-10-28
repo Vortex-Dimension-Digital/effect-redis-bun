@@ -34,7 +34,7 @@ jobs:
         run: bun run lint
 
       - name: Type check
-        run: bun check
+        run: bun run typecheck
 
       - name: Unit tests
         run: bun test

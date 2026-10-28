@@ -42,7 +42,7 @@ jobs:
 
       - run: bun run lint
 
-      - run: bun check
+      - run: bun run typecheck
 
       - run: bun test
 

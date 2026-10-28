@@ -24,7 +24,7 @@
     "test": "bun test",
     "test:integration": "bun test src/index.integration.test.ts",
     "prepare": "effect-tsgo patch --typescript",
-    "prepublishOnly": "bun fmt --check && bun run lint && bun check && bun test && bun run build"
+    "prepublishOnly": "bun fmt --check && bun run lint && bun run typecheck && bun test && bun run build"
   },
   "keywords": [
     "effect",
