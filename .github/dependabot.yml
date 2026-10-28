@@ -1,44 +1,52 @@
 version: 2
 updates:
-  # Keep npm dependencies updated
-  - package-ecosystem: "bun"
-    directory: "/"
+  - package-ecosystem: bun
+    directory: /
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: weekly
+      day: monday
       time: "09:00"
-      timezone: "Europe/Madrid"
+      timezone: Europe/Madrid
     open-pull-requests-limit: 5
-    reviewers:
-      - "arch-fan"
     assignees:
-      - "arch-fan"
+      - arch-fan
+    # Titles become "chore(deps): ..." / "chore(deps-dev): ...".
     commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
+      prefix: chore
+      prefix-development: chore
+      include: scope
     labels:
-      - "dependencies"
-      - "automated"
-    # Group compatible updates
+      - dependencies
+    ignore:
+      # The library supports Effect 3 (peer range <4); moving to Effect 4 is a
+      # breaking change done by hand.
+      - dependency-name: effect
+        update-types: ["version-update:semver-major"]
+      # @types/bun follows the Bun version pinned in mise.toml, bumped by hand.
+      - dependency-name: "@types/bun"
     groups:
-      effect-ecosystem:
+      effect:
         patterns:
+          - effect
           - "@effect/*"
-          - "effect"
       dev-dependencies:
-        dependency-type: "development"
+        dependency-type: development
         update-types:
-          - "minor"
-          - "patch"
+          - minor
+          - patch
 
-  # Keep GitHub Actions updated
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "monthly"
+      interval: monthly
+    # Titles become "ci(deps): ...".
     commit-message:
-      prefix: "ci"
-      include: "scope"
+      prefix: ci
+      include: scope
     labels:
-      - "ci"
-      - "automated"
+      - dependencies
+      - ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"

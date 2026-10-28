@@ -29,7 +29,7 @@ interface RateLimitResult {
 const checkRateLimit = (
   identifier: string,
   limit: number,
-  windowSeconds: number
+  windowSeconds: number,
 ): Effect.Effect<RateLimitResult, never, KeyValueStore.KeyValueStore> =>
   Effect.gen(function* () {
     const store = yield* KeyValueStore.KeyValueStore;
@@ -50,7 +50,8 @@ const checkRateLimit = (
       yield* store.set(key, newCount.toString());
     }
 
-    const resetAt = Math.ceil(Date.now() / 1000 / windowSeconds) * windowSeconds;
+    const resetAt =
+      Math.ceil(Date.now() / 1000 / windowSeconds) * windowSeconds;
 
     return {
       allowed,
@@ -64,7 +65,9 @@ const program = Effect.gen(function* () {
   const result = yield* checkRateLimit("user:123", 100, 3600); // 100 requests per hour
 
   if (!result.allowed) {
-    console.log(`Rate limit exceeded. Try again at ${new Date(result.resetAt * 1000)}`);
+    console.log(
+      `Rate limit exceeded. Try again at ${new Date(result.resetAt * 1000)}`,
+    );
   }
 });
 ```
@@ -79,7 +82,7 @@ import { KeyValueStore } from "@effect/platform";
 
 const acquireLock = (
   lockKey: string,
-  ttlSeconds: number
+  ttlSeconds: number,
 ): Effect.Effect<boolean, never, KeyValueStore.KeyValueStore> =>
   Effect.gen(function* () {
     const store = yield* KeyValueStore.KeyValueStore;
@@ -99,7 +102,7 @@ const acquireLock = (
   });
 
 const releaseLock = (
-  lockKey: string
+  lockKey: string,
 ): Effect.Effect<void, never, KeyValueStore.KeyValueStore> =>
   Effect.gen(function* () {
     const store = yield* KeyValueStore.KeyValueStore;
@@ -110,8 +113,12 @@ const releaseLock = (
 const withLock = <R, E, A>(
   lockKey: string,
   ttlSeconds: number,
-  effect: Effect.Effect<A, E, R>
-): Effect.Effect<A, E | { readonly _tag: "LockAcquisitionFailed" }, R | KeyValueStore.KeyValueStore> =>
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<
+  A,
+  E | { readonly _tag: "LockAcquisitionFailed" },
+  R | KeyValueStore.KeyValueStore
+> =>
   Effect.gen(function* () {
     // Try to acquire lock
     const acquired = yield* acquireLock(lockKey, ttlSeconds);
@@ -133,8 +140,8 @@ const criticalSection = Effect.gen(function* () {
 
 const program = withLock("my-resource", 30, criticalSection).pipe(
   Effect.catchTag("LockAcquisitionFailed", () =>
-    Effect.sync(() => console.log("Could not acquire lock"))
-  )
+    Effect.sync(() => console.log("Could not acquire lock")),
+  ),
 );
 ```
 
@@ -154,7 +161,7 @@ interface CacheOptions {
 const cached = <R, E, A>(
   key: string,
   fetchFn: Effect.Effect<A, E, R>,
-  options: CacheOptions = {}
+  options: CacheOptions = {},
 ): Effect.Effect<A, E, R | KeyValueStore.KeyValueStore> => {
   const { ttlSeconds, keyPrefix = "cache" } = options;
   const cacheKey = `${keyPrefix}:${key}`;
@@ -188,9 +195,9 @@ const getUser = (userId: string) =>
   cached(
     `user:${userId}`,
     Effect.promise(() =>
-      fetch(`https://api.example.com/users/${userId}`).then((r) => r.json())
+      fetch(`https://api.example.com/users/${userId}`).then((r) => r.json()),
     ),
-    { ttlSeconds: 300, keyPrefix: "users" }
+    { ttlSeconds: 300, keyPrefix: "users" },
   );
 ```
 
@@ -208,19 +215,19 @@ const RedisConfigLive = Layer.effect(
   Config.Config,
   Effect.gen(function* () {
     const host = yield* Config.string("REDIS_HOST").pipe(
-      Config.withDefault("localhost")
+      Config.withDefault("localhost"),
     );
     const port = yield* Config.number("REDIS_PORT").pipe(
-      Config.withDefault(6379)
+      Config.withDefault(6379),
     );
     const password = yield* Config.secret("REDIS_PASSWORD").pipe(
-      Config.optional
+      Config.optional,
     );
     const database = yield* Config.number("REDIS_DB").pipe(
-      Config.withDefault(0)
+      Config.withDefault(0),
     );
     const tls = yield* Config.boolean("REDIS_TLS").pipe(
-      Config.withDefault(false)
+      Config.withDefault(false),
     );
 
     return {
@@ -230,7 +237,7 @@ const RedisConfigLive = Layer.effect(
       database,
       tls,
     };
-  })
+  }),
 );
 
 // Create Redis layer from config
@@ -238,7 +245,7 @@ const RedisLive = Layer.unwrapEffect(
   Effect.gen(function* () {
     const config = yield* Config.Config;
     return makeLayer(config);
-  })
+  }),
 ).pipe(Layer.provide(RedisConfigLive));
 
 // Usage with environment variables
@@ -280,9 +287,9 @@ const main = Effect.gen(function* () {
 // Handle process signals
 const program = main.pipe(
   Effect.ensuring(
-    Effect.sync(() => console.log("Cleaning up Redis connection..."))
+    Effect.sync(() => console.log("Cleaning up Redis connection...")),
   ),
-  Effect.provide(RedisLive)
+  Effect.provide(RedisLive),
 );
 
 // Run with cleanup
@@ -313,17 +320,17 @@ import { KeyValueStore } from "@effect/platform";
 
 const withRetry = <R, E, A>(
   effect: Effect.Effect<A, E, R>,
-  maxRetries = 3
+  maxRetries = 3,
 ): Effect.Effect<A, E, R> =>
   effect.pipe(
     Effect.retry(
       Schedule.exponential("100 millis").pipe(
-        Schedule.compose(Schedule.recurs(maxRetries))
-      )
+        Schedule.compose(Schedule.recurs(maxRetries)),
+      ),
     ),
     Effect.tapError((error) =>
-      Effect.sync(() => console.error("Retry failed:", error))
-    )
+      Effect.sync(() => console.error("Retry failed:", error)),
+    ),
   );
 
 // Usage
@@ -363,9 +370,7 @@ const instrumentedGet = (key: string) =>
 
     const result = yield* store.get(key).pipe(
       Effect.tap(() => Metric.increment(redisOpsCounter)),
-      Effect.tap(() =>
-        Metric.update(redisOpsDuration, Date.now() - start)
-      )
+      Effect.tap(() => Metric.update(redisOpsDuration, Date.now() - start)),
     );
 
     return result;
@@ -378,23 +383,24 @@ const instrumentedSet = (key: string, value: string) =>
 
     yield* store.set(key, value).pipe(
       Effect.tap(() => Metric.increment(redisOpsCounter)),
-      Effect.tap(() =>
-        Metric.update(redisOpsDuration, Date.now() - start)
-      )
+      Effect.tap(() => Metric.update(redisOpsDuration, Date.now() - start)),
     );
   });
 
 // Create a service that exposes instrumented operations
-class InstrumentedRedisStore extends Effect.Service<InstrumentedRedisStore>()("InstrumentedRedisStore", {
-  effect: Effect.gen(function* () {
-    const store = yield* KeyValueStore.KeyValueStore;
+class InstrumentedRedisStore extends Effect.Service<InstrumentedRedisStore>()(
+  "InstrumentedRedisStore",
+  {
+    effect: Effect.gen(function* () {
+      const store = yield* KeyValueStore.KeyValueStore;
 
-    return {
-      get: (key: string) => instrumentedGet(key),
-      set: (key: string, value: string) => instrumentedSet(key, value),
-    };
-  }),
-}) {}
+      return {
+        get: (key: string) => instrumentedGet(key),
+        set: (key: string, value: string) => instrumentedSet(key, value),
+      };
+    }),
+  },
+) {}
 
 // Usage
 const program = Effect.gen(function* () {
@@ -424,7 +430,7 @@ const batchGet = (keys: ReadonlyArray<string>) =>
     // Fetch all keys in parallel
     const results = yield* Effect.all(
       keys.map((key) => store.get(key)),
-      { concurrency: "unbounded" }
+      { concurrency: "unbounded" },
     );
 
     // Combine keys with their values
@@ -441,7 +447,7 @@ const batchSet = (entries: ReadonlyArray<{ key: string; value: string }>) =>
     // Set all keys in parallel
     yield* Effect.all(
       entries.map(({ key, value }) => store.set(key, value)),
-      { concurrency: "unbounded" }
+      { concurrency: "unbounded" },
     );
   });
 
@@ -484,20 +490,17 @@ const UserRepositoryLive = Layer.effect(
     const store = yield* KeyValueStore.KeyValueStore;
 
     return {
-      saveUser: (id, user) =>
-        store.set(`user:${id}`, JSON.stringify(user)),
+      saveUser: (id, user) => store.set(`user:${id}`, JSON.stringify(user)),
       getUser: (id) =>
         Effect.map(store.get(`user:${id}`), Option.map(JSON.parse)),
     };
-  })
+  }),
 );
 
 // Test implementation using in-memory Map
 const UserRepositoryTest = Layer.succeed(UserRepository, {
-  saveUser: (id, user) =>
-    Effect.sync(() => testData.set(id, user)),
-  getUser: (id) =>
-    Effect.sync(() => Option.fromNullable(testData.get(id))),
+  saveUser: (id, user) => Effect.sync(() => testData.set(id, user)),
+  getUser: (id) => Effect.sync(() => Option.fromNullable(testData.get(id))),
 });
 
 // Your business logic

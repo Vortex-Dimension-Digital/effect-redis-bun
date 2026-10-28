@@ -157,9 +157,9 @@ const program = Effect.gen(function* () {
   Effect.provide(
     Layer.provide(
       layerFromRedis({ scanBatchSize: 50 }),
-      Layer.succeed(Redis, fromClientService(client))
-    )
-  )
+      Layer.succeed(Redis, fromClientService(client)),
+    ),
+  ),
 );
 ```
 

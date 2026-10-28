@@ -23,12 +23,10 @@ body:
       label: Code to Reproduce
       description: Minimal code that reproduces the problem
       placeholder: |
-        ```typescript
-        import { makeLayer } from "effect-redis-bun"
-        
-        const layer = makeLayer({ host: "localhost" })
+        import { makeLayer } from "@vortexdd/effect-redis-bun"
+
+        const layer = makeLayer({ host: "localhost", port: 6379 })
         // ...
-        ```
       render: typescript
     validations:
       required: true
@@ -66,25 +64,25 @@ body:
     attributes:
       label: Bun Version
       description: Run `bun --version`
-      placeholder: "1.0.20"
+      placeholder: "1.4.4"
     validations:
       required: true
 
   - type: input
     id: package-version
     attributes:
-      label: effect-redis-bun Version
+      label: "@vortexdd/effect-redis-bun Version"
       description: Check your package.json
-      placeholder: "1.0.0"
+      placeholder: "3.1.0"
     validations:
       required: true
 
   - type: input
     id: effect-version
     attributes:
-      label: Effect Version
+      label: effect and @effect/platform Versions
       description: Check your package.json
-      placeholder: "3.19.14"
+      placeholder: "effect 3.22.4, @effect/platform 0.97.3"
     validations:
       required: true
 

@@ -1,232 +1,76 @@
-# Contributing Guide
+# Contributing
 
-Thanks for your interest in contributing to `effect-redis-bun`! 🎉
+Thanks for your interest in contributing to `@vortexdd/effect-redis-bun`!
 
-## Prerequisites
+## Setup
 
-- **Bun** >= 1.0.0 ([install](https://bun.sh))
-- **Git** for version control
-- Familiarity with **Effect** and TypeScript
-
-## Development Process
-
-### 1. Fork and Clone
+The toolchain is pinned with [mise](https://mise.jdx.dev). `mise.toml` pins the Bun version used for development and CI.
 
 ```bash
-# Fork the repository on GitHub, then:
 git clone https://github.com/Vortex-Dimension-Digital/effect-redis-bun.git
 cd effect-redis-bun
-```
-
-### 2. Install Dependencies
-
-```bash
+mise install # installs the pinned Bun
 bun install
 ```
 
-### 3. Create a Branch
+Without mise, install the Bun version from `mise.toml` yourself.
+
+## Tooling
+
+| Task                                                     | Command                                                        |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| Format ([`bun fmt`](https://bun.com/docs/format))        | `bun run format`                                               |
+| Lint ([oxlint](https://oxc.rs/docs/guide/usage/linter))  | `bun run lint`                                                 |
+| Type check ([tsrs](https://github.com/oxc-project/tsrs)) | `bun run typecheck`                                            |
+| All of the above, without writing                        | `bun run check`                                                |
+| Unit tests                                               | `bun test`                                                     |
+| Integration tests                                        | `REDIS_URL=redis://127.0.0.1:6379/15 bun run test:integration` |
+| Build (`bun build` + `.d.ts` from tsrs)                  | `bun run build`                                                |
+
+There are no config files for the formatter or the linter: both run with their defaults.
+
+### Integration tests
+
+The integration tests need a Redis or Valkey server and are skipped without `REDIS_URL`:
 
 ```bash
-git checkout -b feature/my-new-feature
-# or
-git checkout -b fix/my-bug-fix
+docker run -d --rm --name redis -p 6379:6379 redis:7.2
+REDIS_URL=redis://127.0.0.1:6379/15 REDIS_ALLOW_DESTRUCTIVE=1 bun run test:integration
 ```
 
-### 4. Make Changes
+`REDIS_ALLOW_DESTRUCTIVE=1` enables the `size` and `clear` tests, which `FLUSHDB` the database in `REDIS_URL`. Only set it for a throwaway database.
 
-Edit code in `src/`. Make sure to:
+### Running CI locally
 
-- Maintain consistency with existing style
-- Add JSDoc to public functions
-- Update tests if necessary
-- Update documentation if API changes
-
-### 5. Verify Quality
+The workflows run under [act](https://github.com/nektos/act):
 
 ```bash
-# Lint
-bun run lint
-
-# Type checking
-bun run check-types
-
-# Tests
-bun test
-
-# Build
-bun run build
+nix shell nixpkgs#act -c act -s GITHUB_TOKEN="$(gh auth token)" -W .github/workflows/ci.yml
 ```
 
-**All checks must pass** before opening a PR.
+## Pull requests
 
-### 6. Commit
+1. Branch from `main` and keep the change focused.
+2. Add or update tests. Unit tests use `FakeRedisClient` in `src/index.test.ts`; anything that depends on real server behavior belongs in `src/index.integration.test.ts`.
+3. Document public API changes with JSDoc and in `README.md` (and `EXAMPLES.md` when relevant).
+4. Make sure `bun run check` and `bun test` pass.
+5. Use a [Conventional Commit](https://www.conventionalcommits.org/) as the PR title (`feat: ...`, `fix: ...`, `docs: ...`, add `!` for breaking changes). CI checks it, since a squash merge uses the title as the commit message.
 
-We use [Conventional Commits](https://www.conventionalcommits.org/):
+CI must pass before merging: the `Check` job on the pinned Bun, unit tests on the minimum (1.2.22) and latest Bun against the lowest and locked Effect versions, and integration tests against Redis 7.2, Redis 8 and Valkey 9.
 
-```bash
-# Features
-git commit -m "feat: add TTL support to set operation"
+## Compatibility
 
-# Bug fixes
-git commit -m "fix: correctly handle rejected connections"
+- Runtime: Bun >= 1.2.22 (`engines` in `package.json`).
+- Peers: `effect` >= 3.1.2 < 4 and `@effect/platform` >= 0.52.3 < 1. CI tests both ends of these ranges, so avoid APIs that only exist in newer versions, or feature-detect them as `toPlatformError` does.
 
-# Documentation
-git commit -m "docs: improve usage examples"
+## Releasing (maintainers)
 
-# Refactoring
-git commit -m "refactor: simplify scan logic"
+1. Bump `version` in `package.json` and commit `chore(release): vX.Y.Z`.
+2. Tag and push: `git tag vX.Y.Z && git push origin main vX.Y.Z`.
+3. The `Release` workflow checks that the tag matches `package.json`, runs the checks, publishes to npm with provenance (trusted publishing) and creates the GitHub release.
 
-# Tests
-git commit -m "test: add edge cases for clear operation"
+To bump the development Bun, run `mise use bun@X.Y.Z` and update `@types/bun` to the same version (Dependabot leaves it alone).
 
-# CI/Tooling
-git commit -m "ci: update release workflow"
-```
+## Reporting issues
 
-### 7. Push and Pull Request
-
-```bash
-git push origin feature/my-new-feature
-```
-
-Then open a Pull Request on GitHub. Include:
-
-- **Clear description** of changes
-- **Motivation** - why is this necessary?
-- **Tests** - how did you verify it works?
-- **Breaking changes** - if any, describe them
-
-## Project Structure
-
-```
-effect-redis-bun/
-├── src/
-│   ├── index.ts         # Main implementation
-│   └── index.test.ts    # Unit tests
-├── dist/                # Build output (generated)
-├── .github/
-│   ├── workflows/       # CI/CD workflows
-│   └── dependabot.yml   # Dependency configuration
-├── README.md            # Main documentation
-├── EXAMPLES.md          # Advanced examples
-├── CONTRIBUTING.md      # This guide
-├── LICENSE              # MIT License
-├── package.json         # Package configuration
-├── tsconfig.json        # TypeScript config
-└── biome.json           # Linter/formatter config
-```
-
-## Code Standards
-
-### TypeScript
-
-- **Strict mode** enabled
-- Explicit types in public APIs
-- No `any` - use `unknown` if needed
-- Prefer `const` over `let`
-
-### Effect
-
-- Use `Effect.gen` for complex logic
-- Handle errors with specific types
-- Document effects in JSDoc
-- Use `Layer` for dependencies
-
-### Naming
-
-- **camelCase** for functions and variables
-- **PascalCase** for types/interfaces
-- Descriptive and concise names
-- Avoid obscure abbreviations
-
-### Documentation
-
-```typescript
-/**
- * Brief description of the function.
- * 
- * Additional details if necessary.
- * 
- * @param config - Parameter description
- * @returns Return value description
- * @example
- * ```typescript
- * const layer = makeLayer({ host: "localhost" })
- * ```
- * 
- * @since 1.0.0
- */
-```
-
-## Testing
-
-### Writing Tests
-
-- Use `describe` and `it` for structure
-- Descriptive names: `it("should handle empty scan results")`
-- Use `FakeRedisClient` for mocks
-- Check both happy paths and edge cases
-
-### Running Tests
-
-```bash
-# All tests
-bun test
-
-# Watch mode
-bun --watch test
-
-# Coverage (if configured)
-bun test --coverage
-```
-
-## Reporting Issues
-
-### Bugs
-
-Include:
-- Bun, effect, and this library versions
-- Minimal code to reproduce
-- Expected vs actual behavior
-- Relevant logs/errors
-
-### Feature Requests
-
-Explain:
-- The problem it solves
-- Alternatives considered
-- Impact on existing API
-- Proposed usage examples
-
-## Code Review
-
-PRs will be reviewed considering:
-
-1. **Correctness** - Does it work correctly?
-2. **Tests** - Is it well tested?
-3. **Documentation** - Is it documented?
-4. **Style** - Does it follow conventions?
-5. **Performance** - Is it efficient?
-6. **Breaking changes** - Are they necessary?
-
-## Release Process
-
-(For maintainers only)
-
-1. Update version in `package.json`
-2. Commit: `chore(release): v1.2.3`
-3. Tag: `git tag v1.2.3`
-4. Push: `git push && git push --tags`
-5. GitHub Actions will publish automatically
-
-## Questions
-
-If you have questions:
-
-- Open a [Discussion](https://github.com/Vortex-Dimension-Digital/effect-redis-bun/discussions)
-- Check [existing issues](https://github.com/Vortex-Dimension-Digital/effect-redis-bun/issues)
-- Read the [documentation](README.md) and [examples](EXAMPLES.md)
-
-For security vulnerabilities, see our [Security Policy](./SECURITY.md).
-
-Thanks for contributing! 🚀
+Use the issue templates. For security vulnerabilities, see [SECURITY.md](./SECURITY.md).

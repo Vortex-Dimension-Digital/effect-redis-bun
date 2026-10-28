@@ -1,16 +1,16 @@
 import { KeyValueStore, Error as PlatformError } from "@effect/platform";
 import type { RedisClient as BunRedisClientType } from "bun";
 import {
-	Context,
-	Data,
-	Duration,
-	Effect,
-	Fiber,
-	Layer,
-	Option,
-	Queue,
-	Schedule,
-	type Scope,
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Fiber,
+  Layer,
+  Option,
+  Queue,
+  Schedule,
+  type Scope,
 } from "effect";
 
 export type BunRedisClient = BunRedisClientType;
@@ -32,10 +32,10 @@ export type BunRedisClient = BunRedisClientType;
  * ```
  */
 export class RedisCommandError extends Data.TaggedError("RedisCommandError")<{
-	readonly command: string;
-	readonly code: string;
-	readonly message: string;
-	readonly cause: unknown;
+  readonly command: string;
+  readonly code: string;
+  readonly message: string;
+  readonly cause: unknown;
 }> {}
 
 /**
@@ -44,13 +44,13 @@ export class RedisCommandError extends Data.TaggedError("RedisCommandError")<{
  * the underlying client error code when one is available.
  */
 export class RedisConnectionError extends Data.TaggedError(
-	"RedisConnectionError",
+  "RedisConnectionError",
 )<{
-	readonly command: string;
-	/** The error code reported by Bun or the underlying client, when available. */
-	readonly code: string | undefined;
-	readonly message: string;
-	readonly cause: unknown;
+  readonly command: string;
+  /** The error code reported by Bun or the underlying client, when available. */
+  readonly code: string | undefined;
+  readonly message: string;
+  readonly cause: unknown;
 }> {}
 
 export type RedisError = RedisCommandError | RedisConnectionError;
@@ -60,77 +60,77 @@ export type RedisError = RedisCommandError | RedisConnectionError;
 // reply in `message`. Older Bun versions and compatible clients may omit the
 // client code, so parsing the reply is still required as a fallback.
 const BUN_REPLY_ERROR_CODES = new Set([
-	"ERR_REDIS_AUTHENTICATION_FAILED",
-	"ERR_REDIS_INVALID_COMMAND",
-	"ERR_REDIS_INVALID_RESPONSE",
-	"ERR_REDIS_SERVER_ERROR",
+  "ERR_REDIS_AUTHENTICATION_FAILED",
+  "ERR_REDIS_INVALID_COMMAND",
+  "ERR_REDIS_INVALID_RESPONSE",
+  "ERR_REDIS_SERVER_ERROR",
 ]);
 const ERROR_REPLY = /^([A-Z][A-Z0-9_-]*)(?:[ \t]+([\s\S]*))?$/;
 
 const readStringProperty = (
-	value: unknown,
-	property: "code" | "message",
+  value: unknown,
+  property: "code" | "message",
 ): string | undefined => {
-	if (
-		value === null ||
-		(typeof value !== "object" && typeof value !== "function")
-	) {
-		return undefined;
-	}
-	try {
-		const field = Reflect.get(value, property);
-		return typeof field === "string" && field.length > 0 ? field : undefined;
-	} catch {
-		return undefined;
-	}
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function")
+  ) {
+    return undefined;
+  }
+  try {
+    const field = Reflect.get(value, property);
+    return typeof field === "string" && field.length > 0 ? field : undefined;
+  } catch {
+    return undefined;
+  }
 };
 
 const errorMessage = (cause: unknown): string => {
-	const message = readStringProperty(cause, "message");
-	if (message !== undefined) {
-		return message;
-	}
-	try {
-		return String(cause ?? "Unknown error");
-	} catch {
-		return "Unknown error";
-	}
+  const message = readStringProperty(cause, "message");
+  if (message !== undefined) {
+    return message;
+  }
+  try {
+    return String(cause ?? "Unknown error");
+  } catch {
+    return "Unknown error";
+  }
 };
 
 const connectionError = (
-	command: string,
-	cause: unknown,
+  command: string,
+  cause: unknown,
 ): RedisConnectionError =>
-	new RedisConnectionError({
-		command,
-		code: readStringProperty(cause, "code"),
-		message: errorMessage(cause),
-		cause,
-	});
+  new RedisConnectionError({
+    command,
+    code: readStringProperty(cause, "code"),
+    message: errorMessage(cause),
+    cause,
+  });
 
 const classifyCommandError = (command: string, cause: unknown): RedisError => {
-	const message = errorMessage(cause);
-	const clientCode = readStringProperty(cause, "code");
-	const reply = ERROR_REPLY.exec(message);
-	const replyCode = reply?.[1];
-	// RESP allows code-only error replies (no text after the prefix), so a
-	// bare token counts as a reply only when the client code confirms it came
-	// from the server; without a client code we additionally require reply
-	// text to avoid mistaking terse transport errors ("TIMEOUT") for replies.
-	const hasReplyMessage = (reply?.[2]?.length ?? 0) > 0;
-	if (
-		replyCode !== undefined &&
-		(BUN_REPLY_ERROR_CODES.has(clientCode ?? "") ||
-			(clientCode === undefined && hasReplyMessage))
-	) {
-		return new RedisCommandError({
-			command,
-			code: replyCode,
-			message: reply?.[2] ?? "",
-			cause,
-		});
-	}
-	return connectionError(command, cause);
+  const message = errorMessage(cause);
+  const clientCode = readStringProperty(cause, "code");
+  const reply = ERROR_REPLY.exec(message);
+  const replyCode = reply?.[1];
+  // RESP allows code-only error replies (no text after the prefix), so a
+  // bare token counts as a reply only when the client code confirms it came
+  // from the server; without a client code we additionally require reply
+  // text to avoid mistaking terse transport errors ("TIMEOUT") for replies.
+  const hasReplyMessage = (reply?.[2]?.length ?? 0) > 0;
+  if (
+    replyCode !== undefined &&
+    (BUN_REPLY_ERROR_CODES.has(clientCode ?? "") ||
+      (clientCode === undefined && hasReplyMessage))
+  ) {
+    return new RedisCommandError({
+      command,
+      code: replyCode,
+      message: reply?.[2] ?? "",
+      cause,
+    });
+  }
+  return connectionError(command, cause);
 };
 
 /**
@@ -148,14 +148,14 @@ const classifyCommandError = (command: string, cause: unknown): RedisError => {
  * ```
  */
 export interface ConnectionConfig {
-	readonly host: string;
-	readonly port: number;
-	readonly username?: string;
-	readonly password?: string;
-	readonly database?: number;
-	readonly tls?: boolean;
-	readonly connectTimeoutMs?: number;
-	readonly scanBatchSize?: number;
+  readonly host: string;
+  readonly port: number;
+  readonly username?: string;
+  readonly password?: string;
+  readonly database?: number;
+  readonly tls?: boolean;
+  readonly connectTimeoutMs?: number;
+  readonly scanBatchSize?: number;
 }
 
 /**
@@ -163,41 +163,41 @@ export interface ConnectionConfig {
  * `scan` is optional because some Bun versions expose it only via `send("SCAN", ...)`.
  */
 export type RedisClient = Pick<
-	BunRedisClient,
-	"connect" | "close" | "send" | "get" | "getBuffer" | "set" | "del"
+  BunRedisClient,
+  "connect" | "close" | "send" | "get" | "getBuffer" | "set" | "del"
 > & {
-	readonly scan?: BunRedisClient["scan"];
+  readonly scan?: BunRedisClient["scan"];
 };
 
 type RedisKey = Parameters<RedisClient["get"]>[0];
 type RedisValue = Parameters<RedisClient["set"]>[1];
 
 export interface RedisService {
-	readonly connect: Effect.Effect<void, RedisConnectionError>;
-	readonly close: Effect.Effect<void>;
-	readonly send: (
-		command: string,
-		args: Array<string>,
-	) => Effect.Effect<unknown, RedisError>;
-	readonly get: (key: RedisKey) => Effect.Effect<string | null, RedisError>;
-	readonly getBuffer: (
-		key: RedisKey,
-	) => Effect.Effect<Uint8Array | null, RedisError>;
-	readonly set: (
-		key: RedisKey,
-		value: RedisValue,
-		...options: Array<string | number>
-	) => Effect.Effect<"OK" | string | null, RedisError>;
-	readonly del: (...keys: Array<RedisKey>) => Effect.Effect<number, RedisError>;
-	readonly scan: (
-		cursor: string | number,
-		...options: Array<string | number>
-	) => Effect.Effect<[string, Array<string>], RedisError>;
+  readonly connect: Effect.Effect<void, RedisConnectionError>;
+  readonly close: Effect.Effect<void>;
+  readonly send: (
+    command: string,
+    args: Array<string>,
+  ) => Effect.Effect<unknown, RedisError>;
+  readonly get: (key: RedisKey) => Effect.Effect<string | null, RedisError>;
+  readonly getBuffer: (
+    key: RedisKey,
+  ) => Effect.Effect<Uint8Array | null, RedisError>;
+  readonly set: (
+    key: RedisKey,
+    value: RedisValue,
+    ...options: Array<string | number>
+  ) => Effect.Effect<"OK" | string | null, RedisError>;
+  readonly del: (...keys: Array<RedisKey>) => Effect.Effect<number, RedisError>;
+  readonly scan: (
+    cursor: string | number,
+    ...options: Array<string | number>
+  ) => Effect.Effect<[string, Array<string>], RedisError>;
 }
 
 export class Redis extends Context.Tag("@vortexdd/effect-redis-bun/Redis")<
-	Redis,
-	RedisService
+  Redis,
+  RedisService
 >() {}
 
 const DEFAULT_SCAN_BATCH_SIZE = 200;
@@ -205,90 +205,90 @@ const MAX_CLEAR_SWEEPS = 16;
 const PLATFORM_MODULE = "KeyValueStore";
 
 type PlatformSystemErrorFactory = {
-	(properties: Record<string, unknown>): PlatformError.PlatformError;
-	new (properties: Record<string, unknown>): PlatformError.PlatformError;
-	readonly prototype?: object;
+  (properties: Record<string, unknown>): PlatformError.PlatformError;
+  new (properties: Record<string, unknown>): PlatformError.PlatformError;
+  readonly prototype?: object;
 };
 
 const toPlatformError = (
-	method: string,
-	cause: unknown,
+  method: string,
+  cause: unknown,
 ): PlatformError.PlatformError => {
-	const SystemError =
-		PlatformError.SystemError as unknown as PlatformSystemErrorFactory;
-	const properties = {
-		module: PLATFORM_MODULE,
-		method,
-		reason: "Unknown",
-		cause,
-		description: errorMessage(cause),
-	};
+  const SystemError =
+    PlatformError.SystemError as unknown as PlatformSystemErrorFactory;
+  const properties = {
+    module: PLATFORM_MODULE,
+    method,
+    reason: "Unknown",
+    cause,
+    description: errorMessage(cause),
+  };
 
-	// @effect/platform <= 0.52 exposes SystemError as a factory function;
-	// newer versions expose it as a class. Keep the peer dependency range
-	// working across both API shapes.
-	return SystemError.prototype === undefined
-		? SystemError({
-				...properties,
-				message: errorMessage(cause),
-				pathOrDescriptor: "",
-			})
-		: new SystemError(properties);
+  // @effect/platform <= 0.52 exposes SystemError as a factory function;
+  // newer versions expose it as a class. Keep the peer dependency range
+  // working across both API shapes.
+  return SystemError.prototype === undefined
+    ? SystemError({
+        ...properties,
+        message: errorMessage(cause),
+        pathOrDescriptor: "",
+      })
+    : new SystemError(properties);
 };
 
 const readOptional = (value: string | undefined): string | undefined => {
-	if (!value) {
-		return undefined;
-	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 };
 
 type StringStoreImpl = {
-	readonly get: (
-		key: string,
-	) => Effect.Effect<Option.Option<string>, PlatformError.PlatformError>;
-	readonly getUint8Array: (
-		key: string,
-	) => Effect.Effect<Option.Option<Uint8Array>, PlatformError.PlatformError>;
-	readonly set: (
-		key: string,
-		value: string | Uint8Array,
-	) => Effect.Effect<void, PlatformError.PlatformError>;
-	readonly remove: (
-		key: string,
-	) => Effect.Effect<void, PlatformError.PlatformError>;
-	readonly clear: Effect.Effect<void, PlatformError.PlatformError>;
-	readonly size: Effect.Effect<number, PlatformError.PlatformError>;
+  readonly get: (
+    key: string,
+  ) => Effect.Effect<Option.Option<string>, PlatformError.PlatformError>;
+  readonly getUint8Array: (
+    key: string,
+  ) => Effect.Effect<Option.Option<Uint8Array>, PlatformError.PlatformError>;
+  readonly set: (
+    key: string,
+    value: string | Uint8Array,
+  ) => Effect.Effect<void, PlatformError.PlatformError>;
+  readonly remove: (
+    key: string,
+  ) => Effect.Effect<void, PlatformError.PlatformError>;
+  readonly clear: Effect.Effect<void, PlatformError.PlatformError>;
+  readonly size: Effect.Effect<number, PlatformError.PlatformError>;
 };
 
 const readScan = (value: unknown): [string, Array<string>] => {
-	if (!Array.isArray(value) || value.length < 2) {
-		return ["0", []];
-	}
-	const cursor = String(value[0] ?? "0");
-	const keysRaw = value[1];
-	const keys = Array.isArray(keysRaw) ? keysRaw.map((key) => String(key)) : [];
-	return [cursor, keys];
+  if (!Array.isArray(value) || value.length < 2) {
+    return ["0", []];
+  }
+  const cursor = String(value[0] ?? "0");
+  const keysRaw = value[1];
+  const keys = Array.isArray(keysRaw) ? keysRaw.map((key) => String(key)) : [];
+  return [cursor, keys];
 };
 
 const wrapCommand = <A>(
-	command: string,
-	tryFn: () => Promise<A>,
+  command: string,
+  tryFn: () => Promise<A>,
 ): Effect.Effect<A, RedisError> =>
-	Effect.tryPromise({
-		try: tryFn,
-		catch: (error) => classifyCommandError(command, error),
-	});
+  Effect.tryPromise({
+    try: tryFn,
+    catch: (error) => classifyCommandError(command, error),
+  });
 
 const wrapConnection = <A>(
-	command: string,
-	tryFn: () => Promise<A>,
+  command: string,
+  tryFn: () => Promise<A>,
 ): Effect.Effect<A, RedisConnectionError> =>
-	Effect.tryPromise({
-		try: tryFn,
-		catch: (error) => connectionError(command, error),
-	});
+  Effect.tryPromise({
+    try: tryFn,
+    catch: (error) => connectionError(command, error),
+  });
 
 /**
  * Builds a Redis connection URL from configuration.
@@ -297,20 +297,20 @@ const wrapConnection = <A>(
  * @returns Redis connection URL (e.g., "redis://localhost:6379/0" or "rediss://user:pass@host:6380/1")
  */
 export const buildUrl = (config: ConnectionConfig): string => {
-	const username = readOptional(config.username);
-	const password = readOptional(config.password);
-	const database = config.database ?? 0;
-	const protocol = config.tls ? "rediss" : "redis";
+  const username = readOptional(config.username);
+  const password = readOptional(config.password);
+  const database = config.database ?? 0;
+  const protocol = config.tls ? "rediss" : "redis";
 
-	const auth = username
-		? password
-			? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
-			: `${encodeURIComponent(username)}@`
-		: password
-			? `:${encodeURIComponent(password)}@`
-			: "";
+  const auth = username
+    ? password
+      ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
+      : `${encodeURIComponent(username)}@`
+    : password
+      ? `:${encodeURIComponent(password)}@`
+      : "";
 
-	return `${protocol}://${auth}${config.host}:${config.port}/${database}`;
+  return `${protocol}://${auth}${config.host}:${config.port}/${database}`;
 };
 
 /**
@@ -320,11 +320,11 @@ export const buildUrl = (config: ConnectionConfig): string => {
  * @returns Bun Redis client instance (not yet connected)
  */
 export const createClient = (config: ConnectionConfig): BunRedisClient =>
-	new Bun.RedisClient(buildUrl(config), {
-		connectionTimeout: config.connectTimeoutMs ?? 5000,
-		enableOfflineQueue: false,
-		tls: config.tls ?? false,
-	});
+  new Bun.RedisClient(buildUrl(config), {
+    connectionTimeout: config.connectTimeoutMs ?? 5000,
+    enableOfflineQueue: false,
+    tls: config.tls ?? false,
+  });
 
 /**
  * Creates an Effect-based Redis service from a client.
@@ -333,42 +333,42 @@ export const createClient = (config: ConnectionConfig): BunRedisClient =>
  * @returns Effect-based Redis service
  */
 export const fromClientService = (client: RedisClient): RedisService => ({
-	connect: wrapConnection("CONNECT", () => client.connect()),
-	close: Effect.sync(() => {
-		client.close();
-	}),
-	send: (command, args) =>
-		wrapCommand(command.toUpperCase(), () => client.send(command, args)),
-	get: (key) => wrapCommand("GET", () => client.get(key)),
-	getBuffer: (key) => wrapCommand("GET", () => client.getBuffer(key)),
-	set: (key, value, ...options) =>
-		wrapCommand(
-			"SET",
-			async () =>
-				Reflect.apply(client.set, client, [key, value, ...options]) as Promise<
-					"OK" | string | null
-				>,
-		),
-	del: (...keys) => wrapCommand("DEL", () => client.del(...keys)),
-	scan: (cursor, ...options) => {
-		const scan = client.scan;
-		return scan
-			? wrapCommand(
-					"SCAN",
-					async () =>
-						Reflect.apply(scan, client, [cursor, ...options]) as Promise<
-							[string, Array<string>]
-						>,
-				)
-			: wrapCommand("SCAN", () =>
-					client
-						.send("SCAN", [
-							String(cursor),
-							...options.map((option) => String(option)),
-						])
-						.then(readScan),
-				);
-	},
+  connect: wrapConnection("CONNECT", () => client.connect()),
+  close: Effect.sync(() => {
+    client.close();
+  }),
+  send: (command, args) =>
+    wrapCommand(command.toUpperCase(), () => client.send(command, args)),
+  get: (key) => wrapCommand("GET", () => client.get(key)),
+  getBuffer: (key) => wrapCommand("GET", () => client.getBuffer(key)),
+  set: (key, value, ...options) =>
+    wrapCommand(
+      "SET",
+      async () =>
+        Reflect.apply(client.set, client, [key, value, ...options]) as Promise<
+          "OK" | string | null
+        >,
+    ),
+  del: (...keys) => wrapCommand("DEL", () => client.del(...keys)),
+  scan: (cursor, ...options) => {
+    const scan = client.scan;
+    return scan
+      ? wrapCommand(
+          "SCAN",
+          async () =>
+            Reflect.apply(scan, client, [cursor, ...options]) as Promise<
+              [string, Array<string>]
+            >,
+        )
+      : wrapCommand("SCAN", () =>
+          client
+            .send("SCAN", [
+              String(cursor),
+              ...options.map((option) => String(option)),
+            ])
+            .then(readScan),
+        );
+  },
 });
 
 /**
@@ -379,97 +379,97 @@ export const fromClientService = (client: RedisClient): RedisService => ({
  * @returns KeyValueStore implementation
  */
 export const fromService = (
-	redis: RedisService,
-	options?: { readonly scanBatchSize?: number },
+  redis: RedisService,
+  options?: { readonly scanBatchSize?: number },
 ): KeyValueStore.KeyValueStore => {
-	const scanBatchSize = options?.scanBatchSize ?? DEFAULT_SCAN_BATCH_SIZE;
-	const count = scanBatchSize > 0 ? scanBatchSize : DEFAULT_SCAN_BATCH_SIZE;
-	// The KeyValueStore contract fails with PlatformError; the typed RedisError
-	// is preserved as its cause.
-	const asKvsError =
-		(method: string) =>
-		(error: RedisError): PlatformError.PlatformError =>
-			toPlatformError(method, error);
-	const getDbSize = (
-		method: "clear" | "size",
-	): Effect.Effect<number, PlatformError.PlatformError> =>
-		redis.send("DBSIZE", []).pipe(
-			Effect.mapError(asKvsError(method)),
-			Effect.flatMap((value) => {
-				const parsed = typeof value === "number" ? value : Number(value);
-				if (!Number.isInteger(parsed) || parsed < 0) {
-					return Effect.fail(
-						toPlatformError(
-							method,
-							new TypeError(`Invalid DBSIZE response: ${String(value)}`),
-						),
-					);
-				}
-				return Effect.succeed(parsed);
-			}),
-		);
+  const scanBatchSize = options?.scanBatchSize ?? DEFAULT_SCAN_BATCH_SIZE;
+  const count = scanBatchSize > 0 ? scanBatchSize : DEFAULT_SCAN_BATCH_SIZE;
+  // The KeyValueStore contract fails with PlatformError; the typed RedisError
+  // is preserved as its cause.
+  const asKvsError =
+    (method: string) =>
+    (error: RedisError): PlatformError.PlatformError =>
+      toPlatformError(method, error);
+  const getDbSize = (
+    method: "clear" | "size",
+  ): Effect.Effect<number, PlatformError.PlatformError> =>
+    redis.send("DBSIZE", []).pipe(
+      Effect.mapError(asKvsError(method)),
+      Effect.flatMap((value) => {
+        const parsed = typeof value === "number" ? value : Number(value);
+        if (!Number.isInteger(parsed) || parsed < 0) {
+          return Effect.fail(
+            toPlatformError(
+              method,
+              new TypeError(`Invalid DBSIZE response: ${String(value)}`),
+            ),
+          );
+        }
+        return Effect.succeed(parsed);
+      }),
+    );
 
-	const impl: StringStoreImpl = {
-		get: (key) =>
-			redis.get(key).pipe(
-				Effect.mapError(asKvsError("get")),
-				Effect.map((value) => Option.fromNullable(value)),
-			),
-		getUint8Array: (key) =>
-			redis.getBuffer(key).pipe(
-				Effect.mapError(asKvsError("getUint8Array")),
-				Effect.map((value) => Option.fromNullable(value ?? null)),
-			),
-		set: (key, value) =>
-			redis
-				.set(key, value)
-				.pipe(Effect.mapError(asKvsError("set")), Effect.asVoid),
-		remove: (key) =>
-			redis.del(key).pipe(Effect.mapError(asKvsError("remove")), Effect.asVoid),
-		clear: Effect.gen(function* () {
-			for (let sweep = 0; sweep < MAX_CLEAR_SWEEPS; sweep += 1) {
-				let cursor = "0";
-				do {
-					const [nextCursor, keys] = yield* redis
-						.scan(cursor, "MATCH", "*", "COUNT", count)
-						.pipe(Effect.mapError(asKvsError("clear")));
-					cursor = nextCursor;
-					if (keys.length > 0) {
-						yield* redis
-							.del(...keys)
-							.pipe(Effect.mapError(asKvsError("clear")));
-					}
-				} while (cursor !== "0");
+  const impl: StringStoreImpl = {
+    get: (key) =>
+      redis.get(key).pipe(
+        Effect.mapError(asKvsError("get")),
+        Effect.map((value) => Option.fromNullable(value)),
+      ),
+    getUint8Array: (key) =>
+      redis.getBuffer(key).pipe(
+        Effect.mapError(asKvsError("getUint8Array")),
+        Effect.map((value) => Option.fromNullable(value ?? null)),
+      ),
+    set: (key, value) =>
+      redis
+        .set(key, value)
+        .pipe(Effect.mapError(asKvsError("set")), Effect.asVoid),
+    remove: (key) =>
+      redis.del(key).pipe(Effect.mapError(asKvsError("remove")), Effect.asVoid),
+    clear: Effect.gen(function* () {
+      for (let sweep = 0; sweep < MAX_CLEAR_SWEEPS; sweep += 1) {
+        let cursor = "0";
+        do {
+          const [nextCursor, keys] = yield* redis
+            .scan(cursor, "MATCH", "*", "COUNT", count)
+            .pipe(Effect.mapError(asKvsError("clear")));
+          cursor = nextCursor;
+          if (keys.length > 0) {
+            yield* redis
+              .del(...keys)
+              .pipe(Effect.mapError(asKvsError("clear")));
+          }
+        } while (cursor !== "0");
 
-				const remaining = yield* getDbSize("clear");
-				if (remaining === 0) {
-					return;
-				}
-			}
+        const remaining = yield* getDbSize("clear");
+        if (remaining === 0) {
+          return;
+        }
+      }
 
-			return yield* toPlatformError(
-				"clear",
-				new Error(
-					`Unable to clear Redis keys after ${MAX_CLEAR_SWEEPS} sweeps. Concurrent writes may still be in progress.`,
-				),
-			);
-		}),
-		size: getDbSize("size"),
-	};
+      return yield* toPlatformError(
+        "clear",
+        new Error(
+          `Unable to clear Redis keys after ${MAX_CLEAR_SWEEPS} sweeps. Concurrent writes may still be in progress.`,
+        ),
+      );
+    }),
+    size: getDbSize("size"),
+  };
 
-	const maybeMakeStringOnly = (
-		KeyValueStore as unknown as {
-			readonly makeStringOnly?: (
-				impl: StringStoreImpl,
-			) => KeyValueStore.KeyValueStore;
-		}
-	).makeStringOnly;
+  const maybeMakeStringOnly = (
+    KeyValueStore as unknown as {
+      readonly makeStringOnly?: (
+        impl: StringStoreImpl,
+      ) => KeyValueStore.KeyValueStore;
+    }
+  ).makeStringOnly;
 
-	if (maybeMakeStringOnly) {
-		return maybeMakeStringOnly(impl);
-	}
+  if (maybeMakeStringOnly) {
+    return maybeMakeStringOnly(impl);
+  }
 
-	return KeyValueStore.make(impl);
+  return KeyValueStore.make(impl);
 };
 
 /**
@@ -480,30 +480,30 @@ export const fromService = (
  * @returns KeyValueStore implementation
  */
 export const fromClient = (
-	client: RedisClient,
-	options?: { readonly scanBatchSize?: number },
+  client: RedisClient,
+  options?: { readonly scanBatchSize?: number },
 ): KeyValueStore.KeyValueStore =>
-	fromService(fromClientService(client), options);
+  fromService(fromClientService(client), options);
 
 /**
  * Backoff for {@link keepConnected}: exponential from `initialDelayMs`,
  * capped at `maxDelayMs`, retried until the connection comes back.
  */
 export interface ReconnectOptions {
-	/** Delay before the first reconnection attempt. Defaults to 100ms. */
-	readonly initialDelayMs?: number;
-	/** Upper bound for the delay between attempts. Defaults to 5000ms. */
-	readonly maxDelayMs?: number;
+  /** Delay before the first reconnection attempt. Defaults to 100ms. */
+  readonly initialDelayMs?: number;
+  /** Upper bound for the delay between attempts. Defaults to 5000ms. */
+  readonly maxDelayMs?: number;
 }
 
 /** The part of Bun's client that {@link keepConnected} needs. */
 export type ReconnectableClient = Pick<BunRedisClient, "connect"> & {
-	onclose: BunRedisClient["onclose"];
+  onclose: BunRedisClient["onclose"];
 };
 
 export interface KeepConnected {
-	/** Stops reconnecting; call it before closing the client on purpose. */
-	readonly stop: Effect.Effect<void>;
+  /** Stops reconnecting; call it before closing the client on purpose. */
+  readonly stop: Effect.Effect<void>;
 }
 
 /**
@@ -523,67 +523,67 @@ export interface KeepConnected {
  * @returns A handle to stop reconnecting; reconnection runs in a fiber tied to the scope
  */
 export const keepConnected = (
-	client: ReconnectableClient,
-	options?: ReconnectOptions,
+  client: ReconnectableClient,
+  options?: ReconnectOptions,
 ): Effect.Effect<KeepConnected, never, Scope.Scope> =>
-	Effect.gen(function* () {
-		const closed = yield* Queue.sliding<void>(1);
-		let stopped = false;
-		client.onclose = () => {
-			if (!stopped) {
-				Queue.unsafeOffer(closed, undefined);
-			}
-		};
+  Effect.gen(function* () {
+    const closed = yield* Queue.sliding<void>(1);
+    let stopped = false;
+    client.onclose = () => {
+      if (!stopped) {
+        Queue.unsafeOffer(closed, undefined);
+      }
+    };
 
-		const backoff = Schedule.exponential(
-			Duration.millis(options?.initialDelayMs ?? 100),
-		).pipe(
-			Schedule.union(
-				Schedule.spaced(Duration.millis(options?.maxDelayMs ?? 5000)),
-			),
-		);
+    const backoff = Schedule.exponential(
+      Duration.millis(options?.initialDelayMs ?? 100),
+    ).pipe(
+      Schedule.union(
+        Schedule.spaced(Duration.millis(options?.maxDelayMs ?? 5000)),
+      ),
+    );
 
-		const fiber = yield* Queue.take(closed).pipe(
-			Effect.zipRight(
-				wrapConnection("CONNECT", () => client.connect()).pipe(
-					Effect.retry(backoff),
-					Effect.ignore,
-				),
-			),
-			Effect.forever,
-			Effect.forkScoped,
-		);
+    const fiber = yield* Queue.take(closed).pipe(
+      Effect.zipRight(
+        wrapConnection("CONNECT", () => client.connect()).pipe(
+          Effect.retry(backoff),
+          Effect.ignore,
+        ),
+      ),
+      Effect.forever,
+      Effect.forkScoped,
+    );
 
-		const stop = Effect.suspend(() => {
-			stopped = true;
-			// A no-op rather than null: once a handler has been set, Bun (1.4)
-			// throws asynchronously from close() if onclose was reset to null.
-			client.onclose = () => {};
-			return Fiber.interrupt(fiber);
-		}).pipe(Effect.asVoid);
-		yield* Effect.addFinalizer(() => stop);
+    const stop = Effect.suspend(() => {
+      stopped = true;
+      // A no-op rather than null: once a handler has been set, Bun (1.4)
+      // throws asynchronously from close() if onclose was reset to null.
+      client.onclose = () => {};
+      return Fiber.interrupt(fiber);
+    }).pipe(Effect.asVoid);
+    yield* Effect.addFinalizer(() => stop);
 
-		return { stop };
-	});
+    return { stop };
+  });
 
 const acquireClient = (config: ConnectionConfig) =>
-	Effect.gen(function* () {
-		const client = yield* Effect.acquireRelease(
-			Effect.gen(function* () {
-				const redis = createClient(config);
-				yield* wrapConnection("CONNECT", () => redis.connect());
-				return redis;
-			}),
-			(redis) =>
-				Effect.sync(() => {
-					redis.close();
-				}),
-		);
-		// Registered after the release above, so its finalizer runs first and the
-		// final close() is not taken for a dropped connection.
-		const reconnect = yield* keepConnected(client);
-		return { client, reconnect };
-	});
+  Effect.gen(function* () {
+    const client = yield* Effect.acquireRelease(
+      Effect.gen(function* () {
+        const redis = createClient(config);
+        yield* wrapConnection("CONNECT", () => redis.connect());
+        return redis;
+      }),
+      (redis) =>
+        Effect.sync(() => {
+          redis.close();
+        }),
+    );
+    // Registered after the release above, so its finalizer runs first and the
+    // final close() is not taken for a dropped connection.
+    const reconnect = yield* keepConnected(client);
+    return { client, reconnect };
+  });
 
 /**
  * Creates an Effect Layer that provides the Effect-based Redis service.
@@ -595,18 +595,18 @@ const acquireClient = (config: ConnectionConfig) =>
  * @returns Effect Layer providing Redis
  */
 export const makeRedisLayer = (
-	config: ConnectionConfig,
+  config: ConnectionConfig,
 ): Layer.Layer<Redis, RedisConnectionError> =>
-	Layer.scoped(
-		Redis,
-		Effect.map(acquireClient(config), ({ client, reconnect }) => {
-			const service = fromClientService(client);
-			return {
-				...service,
-				close: Effect.zipRight(reconnect.stop, service.close),
-			};
-		}),
-	);
+  Layer.scoped(
+    Redis,
+    Effect.map(acquireClient(config), ({ client, reconnect }) => {
+      const service = fromClientService(client);
+      return {
+        ...service,
+        close: Effect.zipRight(reconnect.stop, service.close),
+      };
+    }),
+  );
 
 /**
  * Creates an Effect Layer that derives a KeyValueStore from an already-provided Redis service.
@@ -615,12 +615,12 @@ export const makeRedisLayer = (
  * @returns Effect Layer providing KeyValueStore, requiring Redis
  */
 export const layerFromRedis = (options?: {
-	readonly scanBatchSize?: number;
+  readonly scanBatchSize?: number;
 }): Layer.Layer<KeyValueStore.KeyValueStore, never, Redis> =>
-	Layer.effect(
-		KeyValueStore.KeyValueStore,
-		Effect.map(Redis, (redis) => fromService(redis, options)),
-	);
+  Layer.effect(
+    KeyValueStore.KeyValueStore,
+    Effect.map(Redis, (redis) => fromService(redis, options)),
+  );
 
 /**
  * Creates an Effect Layer that provides a KeyValueStore backed by Redis.
@@ -629,15 +629,15 @@ export const layerFromRedis = (options?: {
  * @returns Effect Layer providing KeyValueStore
  */
 export const makeKeyValueStoreLayer = (
-	config: ConnectionConfig,
+  config: ConnectionConfig,
 ): Layer.Layer<KeyValueStore.KeyValueStore, PlatformError.PlatformError> =>
-	Layer.provide(
-		layerFromRedis({
-			scanBatchSize: config.scanBatchSize,
-		}),
-		Layer.mapError(makeRedisLayer(config), (error) =>
-			toPlatformError("connect", error),
-		),
-	);
+  Layer.provide(
+    layerFromRedis({
+      scanBatchSize: config.scanBatchSize,
+    }),
+    Layer.mapError(makeRedisLayer(config), (error) =>
+      toPlatformError("connect", error),
+    ),
+  );
 
 export const makeLayer = makeKeyValueStoreLayer;

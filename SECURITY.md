@@ -4,10 +4,12 @@
 
 We currently provide security support for the following versions:
 
+Security fixes go to the latest major version.
+
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.x.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+| 3.x     | :white_check_mark: |
+| < 3.0   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -46,7 +48,7 @@ To help us understand and resolve the issue quickly, include:
 ```
 Type: Possible credential exposure
 Location: src/index.ts, buildUrl() function
-Version: 1.0.0
+Version: 3.1.0
 
 Description:
 Passwords could be logged in certain contexts...
@@ -90,17 +92,20 @@ We follow a **coordinated disclosure** policy:
 We thank the following security researchers:
 
 <!-- List of security contributors -->
+
 - No one yet - be the first!
 
 ### 🔍 Scope
 
 **In scope:**
+
 - Vulnerabilities in this library's code
 - Configuration issues that expose data
 - Bugs that allow authentication bypass
 - Direct dependency vulnerabilities
 
 **Out of scope:**
+
 - Vulnerabilities in Redis Server itself
 - Issues in Bun runtime (report to Bun)
 - Vulnerabilities in Effect (report to Effect)
@@ -124,7 +129,7 @@ To use this library securely:
 ### 🔐 Secure Configuration
 
 ```typescript
-import { makeLayer } from "effect-redis-bun"
+import { makeLayer } from "@vortexdd/effect-redis-bun";
 
 // ✅ Good: Credentials from env vars
 const layer = makeLayer({
@@ -133,13 +138,15 @@ const layer = makeLayer({
   password: process.env.REDIS_PASSWORD, // ⚠️ Never hardcode
   tls: process.env.NODE_ENV === "production", // TLS in prod
   username: process.env.REDIS_USER,
-  database: parseInt(process.env.REDIS_DB || "0")
-})
+  database: parseInt(process.env.REDIS_DB || "0"),
+});
 
 // ❌ Bad: Credentials in code
 const badLayer = makeLayer({
-  password: "my-secret-password" // DON'T DO THIS!
-})
+  host: "localhost",
+  port: 6379,
+  password: "my-secret-password", // DON'T DO THIS!
+});
 ```
 
 ### 📝 Security History

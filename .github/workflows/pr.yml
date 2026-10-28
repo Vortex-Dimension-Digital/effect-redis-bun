@@ -1,0 +1,31 @@
+name: PR
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    name: PR Title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A squash merge uses the PR title as the commit message, so it has to be
+      # a Conventional Commit.
+      - name: Check Conventional Commit title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|refactor|perf|test|build|ci|chore|revert|style)(\([a-z0-9._/-]+\))?!?: [^ ].*$'
+          if ! grep -qE "$pattern" <<<"$TITLE"; then
+            echo "::error::PR title \"$TITLE\" is not a Conventional Commit, e.g. \"fix: handle empty scan results\" or \"feat(kvs)!: drop makeLayer\"."
+            exit 1
+          fi
+          echo "PR title OK: $TITLE"
