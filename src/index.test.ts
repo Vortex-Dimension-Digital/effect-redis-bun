@@ -2,10 +2,13 @@ import { describe, expect, it } from "bun:test";
 import { KeyValueStore, Error as PlatformError } from "@effect/platform";
 import { Effect, Layer, Option } from "effect";
 import {
+	type BunRedisClient,
 	buildUrl,
 	fromClient,
 	fromClientService,
+	keepConnected,
 	layerFromRedis,
+	type ReconnectableClient,
 	Redis,
 	type RedisClient,
 } from "./index";
@@ -544,5 +547,114 @@ describe("fromClient", () => {
 		if (Option.isSome(found)) {
 			expect(found.value).toBe("value");
 		}
+	});
+});
+
+// Mimics Bun's client after it gives up reconnecting: `onclose` fires once,
+// and `connect()` keeps failing until the server is reachable again.
+class FlakyClient implements ReconnectableClient {
+	onclose: ReconnectableClient["onclose"] = null;
+	connected = true;
+	connectCalls = 0;
+	failuresLeft = 0;
+
+	connect = async (): Promise<void> => {
+		this.connectCalls += 1;
+		if (this.failuresLeft > 0) {
+			this.failuresLeft -= 1;
+			throw Object.assign(new Error("Connection closed"), {
+				code: "ERR_REDIS_CONNECTION_CLOSED",
+			});
+		}
+		this.connected = true;
+	};
+
+	// Bun fires onclose with the same error both when it runs out of retries
+	// and on an explicit close().
+	fireClose = (): void => {
+		this.connected = false;
+		this.onclose?.call(
+			this as unknown as BunRedisClient,
+			Object.assign(new Error("Connection closed"), {
+				code: "ERR_REDIS_CONNECTION_CLOSED",
+			}),
+		);
+	};
+}
+
+const waitFor = (predicate: () => boolean) =>
+	Effect.gen(function* () {
+		for (let i = 0; i < 400 && !predicate(); i += 1) {
+			yield* Effect.sleep("5 millis");
+		}
+	});
+
+const fastBackoff = { initialDelayMs: 1, maxDelayMs: 5 };
+
+describe("keepConnected", () => {
+	it("reconnects after Bun gives up, retrying until the server is back", async () => {
+		const client = new FlakyClient();
+		client.failuresLeft = 3;
+
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					yield* keepConnected(client, fastBackoff);
+					client.fireClose();
+					yield* waitFor(() => client.connected);
+				}),
+			),
+		);
+
+		expect(client.connected).toBe(true);
+		expect(client.connectCalls).toBe(4);
+	});
+
+	it("reconnects again on a later outage", async () => {
+		const client = new FlakyClient();
+
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					yield* keepConnected(client, fastBackoff);
+					client.fireClose();
+					yield* waitFor(() => client.connected);
+					client.failuresLeft = 1;
+					client.fireClose();
+					yield* waitFor(() => client.connected);
+				}),
+			),
+		);
+
+		expect(client.connected).toBe(true);
+		expect(client.connectCalls).toBe(3);
+	});
+
+	it("does not reconnect after stop (explicit close)", async () => {
+		const client = new FlakyClient();
+
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const reconnect = yield* keepConnected(client, fastBackoff);
+					yield* reconnect.stop;
+					client.fireClose();
+					yield* Effect.sleep("30 millis");
+				}),
+			),
+		);
+
+		expect(client.connected).toBe(false);
+		expect(client.connectCalls).toBe(0);
+	});
+
+	it("stops when its scope closes", async () => {
+		const client = new FlakyClient();
+
+		await Effect.runPromise(Effect.scoped(keepConnected(client, fastBackoff)));
+		client.fireClose();
+		await Effect.runPromise(Effect.sleep("30 millis"));
+
+		expect(client.connectCalls).toBe(0);
 	});
 });

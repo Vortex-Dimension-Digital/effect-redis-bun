@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { RedisClient } from "bun";
 import { Effect, Option } from "effect";
-import { fromClient, fromClientService } from "./index";
+import { fromClient, fromClientService, keepConnected } from "./index";
 
 const { REDIS_URL: redisUrl, REDIS_ALLOW_DESTRUCTIVE: destructiveFlag } =
 	Bun.env;
@@ -222,5 +222,137 @@ integrationDescribe("fromClient integration (real redis)", () => {
 			const dbSize = await client.send("DBSIZE", []);
 			expect(Number(dbSize)).toBe(0);
 		},
+	);
+});
+
+type ProxySocket = import("bun").Socket<{
+	upstream?: import("bun").Socket<unknown>;
+	pending: Array<Uint8Array>;
+}>;
+
+// TCP proxy in front of the real server, so a test can make it unreachable
+// and bring it back on the same port.
+const startProxy = (target: URL, port = 0) => {
+	const sockets = new Set<{ end: () => void }>();
+	const server = Bun.listen<{
+		upstream?: import("bun").Socket<unknown>;
+		pending: Array<Uint8Array>;
+	}>({
+		hostname: "127.0.0.1",
+		port,
+		socket: {
+			open(client: ProxySocket) {
+				client.data = { pending: [] };
+				sockets.add(client);
+				Bun.connect({
+					hostname: target.hostname,
+					port: Number(target.port || 6379),
+					socket: {
+						data(_upstream, chunk) {
+							client.write(chunk);
+						},
+						close() {
+							client.end();
+						},
+						error() {
+							client.end();
+						},
+					},
+				}).then(
+					(upstream) => {
+						sockets.add(upstream);
+						client.data.upstream = upstream;
+						for (const chunk of client.data.pending) {
+							upstream.write(chunk);
+						}
+						client.data.pending = [];
+					},
+					() => client.end(),
+				);
+			},
+			data(client: ProxySocket, chunk) {
+				if (client.data.upstream) {
+					client.data.upstream.write(chunk);
+				} else {
+					client.data.pending.push(new Uint8Array(chunk));
+				}
+			},
+			close(client: ProxySocket) {
+				client.data.upstream?.end();
+				sockets.delete(client);
+			},
+		},
+	});
+	return {
+		port: server.port,
+		stop: () => {
+			server.stop(true);
+			for (const socket of sockets) {
+				socket.end();
+			}
+			sockets.clear();
+		},
+	};
+};
+
+integrationDescribe("keepConnected integration (real redis)", () => {
+	it(
+		"recovers a client after Bun gives up reconnecting",
+		async () => {
+			if (!redisUrl) {
+				return;
+			}
+			const target = new URL(redisUrl);
+			let proxy = startProxy(target);
+			const port = proxy.port;
+			const via = new URL(redisUrl);
+			via.hostname = "127.0.0.1";
+			via.port = String(port);
+
+			// maxRetries: 1 makes Bun give up in milliseconds instead of ~30s.
+			const client = new RedisClient(via.toString(), {
+				enableOfflineQueue: false,
+				maxRetries: 1,
+			});
+			const redis = fromClientService(client);
+			const key = `reconnect:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+
+			try {
+				await Effect.runPromise(
+					Effect.scoped(
+						Effect.gen(function* () {
+							yield* redis.connect;
+							yield* keepConnected(client, {
+								initialDelayMs: 20,
+								maxDelayMs: 100,
+							});
+							yield* redis.set(key, "before");
+
+							proxy.stop();
+							for (let i = 0; i < 100 && client.connected; i += 1) {
+								yield* Effect.sleep("20 millis");
+							}
+							expect(client.connected).toBe(false);
+							// Let Bun exhaust its own retries while the server is down.
+							yield* Effect.sleep("500 millis");
+							const whileDown = yield* Effect.either(redis.get(key));
+							expect(whileDown._tag).toBe("Left");
+
+							proxy = startProxy(target, port);
+							for (let i = 0; i < 200 && !client.connected; i += 1) {
+								yield* Effect.sleep("20 millis");
+							}
+							expect(client.connected).toBe(true);
+							expect(yield* redis.get(key)).toBe("before");
+							yield* redis.del(key);
+						}),
+					),
+				);
+			} finally {
+				client.close();
+				proxy.stop();
+			}
+		},
+		{ timeout: 20_000 },
 	);
 });

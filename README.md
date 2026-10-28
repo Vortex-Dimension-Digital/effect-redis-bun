@@ -120,6 +120,24 @@ const store = fromClient(client, {
 });
 ```
 
+A client you build yourself does not get the automatic reconnection of `makeRedisLayer`.
+Add it with `keepConnected` inside a scope:
+
+```ts
+import { Effect } from "effect";
+import { keepConnected } from "@vortexdd/effect-redis-bun";
+
+const program = Effect.scoped(
+  Effect.gen(function* () {
+    yield* redis.connect;
+    const reconnect = yield* keepConnected(client);
+    // ... use redis / store ...
+    yield* reconnect.stop; // before an explicit close
+    yield* redis.close;
+  }),
+);
+```
+
 ### Build a KeyValueStore from an Existing Redis Service
 
 ```ts
@@ -173,7 +191,21 @@ Builds a `KeyValueStore` directly from a Bun client.
 
 ### `makeRedisLayer(config: ConnectionConfig)`
 
-Creates a scoped layer that provides `Redis`.
+Creates a scoped layer that provides `Redis`. The client reconnects on its own after an
+outage longer than Bun's built-in retries (see `keepConnected`).
+
+### `keepConnected(client, options?)`
+
+Keeps a Bun client connected after Bun gives up reconnecting. Bun retries a dropped
+connection only `maxRetries` times (about 30 seconds by default); after that the client stays
+closed even once the server is back, and every command fails with
+`ERR_REDIS_CONNECTION_CLOSED`. `keepConnected` hooks `onclose` and keeps calling `connect()`
+with a capped exponential backoff (`initialDelayMs`, default 100; `maxDelayMs`, default 5000).
+
+It returns `{ stop }` and runs in a fiber tied to the current scope. Bun fires `onclose` the
+same way for an explicit `close()`, so run `stop` before closing the client on purpose.
+`makeRedisLayer` already does this, both for the service's `close` and when the layer is
+released.
 
 ### `layerFromRedis(options?)`
 
@@ -228,7 +260,7 @@ The `KeyValueStore` adapter and its layer keep their platform contract and fail 
 
 ## Notes
 
-- `makeRedisLayer` creates a ready-to-use service and closes the client when the layer scope ends.
+- `makeRedisLayer` creates a ready-to-use service, reconnects it after long outages and closes the client when the layer scope ends.
 - `clear` uses `SCAN` in batches and avoids `KEYS *`.
 - `size` uses `DBSIZE` instead of scanning the full keyspace.
 - `scan` falls back to `send("SCAN", ...)` if the Bun client version does not expose `scan` directly.
