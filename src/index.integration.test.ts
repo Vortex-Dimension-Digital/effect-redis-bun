@@ -117,17 +117,20 @@ integrationDescribe("fromClient integration (real redis)", () => {
     );
   });
 
-  it("supports binary values through getUint8Array", async () => {
-    const store = fromClient(await connectedClient(), { scanBatchSize: 20 });
+  it("stores binary values as raw bytes", async () => {
+    const client = await connectedClient();
+    const store = fromClient(client, { scanBatchSize: 20 });
     const key = uniqueKey("itest:bin");
     const input = new Uint8Array([1, 2, 3, 255]);
 
     await Effect.runPromise(store.set(key, input));
     const found = await Effect.runPromise(store.getUint8Array(key));
+    const raw = await client.getBuffer(key);
 
     expect(Option.map(found, (bytes) => Array.from(bytes))).toEqual(
       Option.some(Array.from(input)),
     );
+    expect(Array.from(raw ?? [])).toEqual(Array.from(input));
 
     await Effect.runPromise(store.remove(key));
   });

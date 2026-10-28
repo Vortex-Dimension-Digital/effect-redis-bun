@@ -22,6 +22,7 @@ class FakeRedisClient implements RedisClient {
 
   readonly delCalls: Array<ReadonlyArray<string>> = [];
   readonly sendCommands: Array<string> = [];
+  readonly scanCalls: Array<ReadonlyArray<string | number>> = [];
   scanCallCount = 0;
   connected = false;
 
@@ -74,6 +75,7 @@ class FakeRedisClient implements RedisClient {
     ...args: Array<string | number>
   ): Promise<[string, Array<string>]> => {
     this.scanCallCount += 1;
+    this.scanCalls.push(args);
     const currentCursor = String(cursor);
     const countIndex = args.indexOf("COUNT");
     const count =
@@ -190,6 +192,13 @@ describe("buildUrl", () => {
     });
 
     expect(url).toBe("redis://agent@127.0.0.1:6379/0");
+  });
+
+  it("brackets IPv6 hosts", () => {
+    expect(buildUrl({ host: "::1", port: 6379 })).toBe("redis://[::1]:6379/0");
+    expect(buildUrl({ host: "[::1]", port: 6379 })).toBe(
+      "redis://[::1]:6379/0",
+    );
   });
 });
 
@@ -506,6 +515,27 @@ describe("fromClient", () => {
     }
   });
 
+  it("stores binary values as raw bytes, not base64", async () => {
+    const redis = new FakeRedisClient();
+    const store = fromClient(redis);
+
+    await Effect.runPromise(store.set("bin:1", new Uint8Array([97, 98, 99])));
+
+    expect(await redis.get("bin:1")).toBe("abc");
+  });
+
+  it("reads string values as their UTF-8 bytes through getUint8Array", async () => {
+    const redis = new FakeRedisClient();
+    const store = fromClient(redis);
+
+    await Effect.runPromise(store.set("str:1", "test"));
+    const found = await Effect.runPromise(store.getUint8Array("str:1"));
+
+    expect(Option.map(found, (bytes) => Array.from(bytes))).toEqual(
+      Option.some([116, 101, 115, 116]),
+    );
+  });
+
   it("clear deletes all keys using scan batches", async () => {
     const redis = new FakeRedisClient();
     const store = fromClient(redis, {
@@ -522,6 +552,18 @@ describe("fromClient", () => {
     const size = await Effect.runPromise(store.size);
     expect(size).toBe(0);
     expect(redis.delCalls.length).toBeGreaterThan(1);
+  });
+
+  it("falls back to the default scan batch size for invalid values", async () => {
+    for (const scanBatchSize of [0, -1, 2.5, Number.POSITIVE_INFINITY]) {
+      const redis = new FakeRedisClient();
+      const store = fromClient(redis, { scanBatchSize });
+
+      await Effect.runPromise(store.set("k1", "1"));
+      await Effect.runPromise(store.clear);
+
+      expect(redis.scanCalls[0]).toEqual(["COUNT", 200]);
+    }
   });
 
   it("size uses DBSIZE instead of scanning", async () => {
@@ -665,6 +707,30 @@ describe("keepConnected", () => {
 
     expect(client.connected).toBe(false);
     expect(client.connectCalls).toBe(0);
+  });
+
+  it("keeps an onclose handler that was already set", async () => {
+    const client = new FlakyClient();
+    const errors: Array<Error> = [];
+    const handler: ReconnectableClient["onclose"] = (error) => {
+      errors.push(error);
+    };
+    client.onclose = handler;
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const reconnect = yield* keepConnected(client, fastBackoff);
+          client.fireClose();
+          yield* waitFor(() => client.connected);
+          yield* reconnect.stop;
+        }),
+      ),
+    );
+
+    expect(client.connectCalls).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect(client.onclose).toBe(handler);
   });
 
   it("stops when its scope closes", async () => {

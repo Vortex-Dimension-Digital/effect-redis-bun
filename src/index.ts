@@ -244,7 +244,7 @@ const readOptional = (value: string | undefined): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-type StringStoreImpl = {
+type StoreImpl = {
   readonly get: (
     key: string,
   ) => Effect.Effect<Option.Option<string>, PlatformError.PlatformError>;
@@ -301,6 +301,11 @@ export const buildUrl = (config: ConnectionConfig): string => {
   const password = readOptional(config.password);
   const database = config.database ?? 0;
   const protocol = config.tls ? "rediss" : "redis";
+  // IPv6 literals need brackets in a URL authority.
+  const host =
+    config.host.includes(":") && !config.host.startsWith("[")
+      ? `[${config.host}]`
+      : config.host;
 
   const auth = username
     ? password
@@ -310,7 +315,7 @@ export const buildUrl = (config: ConnectionConfig): string => {
       ? `:${encodeURIComponent(password)}@`
       : "";
 
-  return `${protocol}://${auth}${config.host}:${config.port}/${database}`;
+  return `${protocol}://${auth}${host}:${config.port}/${database}`;
 };
 
 /**
@@ -382,8 +387,13 @@ export const fromService = (
   redis: RedisService,
   options?: { readonly scanBatchSize?: number },
 ): KeyValueStore.KeyValueStore => {
-  const scanBatchSize = options?.scanBatchSize ?? DEFAULT_SCAN_BATCH_SIZE;
-  const count = scanBatchSize > 0 ? scanBatchSize : DEFAULT_SCAN_BATCH_SIZE;
+  const scanBatchSize = options?.scanBatchSize;
+  const count =
+    scanBatchSize !== undefined &&
+    Number.isSafeInteger(scanBatchSize) &&
+    scanBatchSize > 0
+      ? scanBatchSize
+      : DEFAULT_SCAN_BATCH_SIZE;
   // The KeyValueStore contract fails with PlatformError; the typed RedisError
   // is preserved as its cause.
   const asKvsError =
@@ -409,17 +419,21 @@ export const fromService = (
       }),
     );
 
-  const impl: StringStoreImpl = {
+  const impl: StoreImpl = {
     get: (key) =>
-      redis.get(key).pipe(
-        Effect.mapError(asKvsError("get")),
-        Effect.map((value) => Option.fromNullable(value)),
-      ),
+      redis
+        .get(key)
+        .pipe(
+          Effect.mapError(asKvsError("get")),
+          Effect.map(Option.fromNullable),
+        ),
     getUint8Array: (key) =>
-      redis.getBuffer(key).pipe(
-        Effect.mapError(asKvsError("getUint8Array")),
-        Effect.map((value) => Option.fromNullable(value ?? null)),
-      ),
+      redis
+        .getBuffer(key)
+        .pipe(
+          Effect.mapError(asKvsError("getUint8Array")),
+          Effect.map(Option.fromNullable),
+        ),
     set: (key, value) =>
       redis
         .set(key, value)
@@ -431,7 +445,7 @@ export const fromService = (
         let cursor = "0";
         do {
           const [nextCursor, keys] = yield* redis
-            .scan(cursor, "MATCH", "*", "COUNT", count)
+            .scan(cursor, "COUNT", count)
             .pipe(Effect.mapError(asKvsError("clear")));
           cursor = nextCursor;
           if (keys.length > 0) {
@@ -457,18 +471,8 @@ export const fromService = (
     size: getDbSize("size"),
   };
 
-  const maybeMakeStringOnly = (
-    KeyValueStore as unknown as {
-      readonly makeStringOnly?: (
-        impl: StringStoreImpl,
-      ) => KeyValueStore.KeyValueStore;
-    }
-  ).makeStringOnly;
-
-  if (maybeMakeStringOnly) {
-    return maybeMakeStringOnly(impl);
-  }
-
+  // Not makeStringOnly: Redis values are binary-safe, and makeStringOnly would
+  // replace getUint8Array/set with a base64 encoding of the bytes.
   return KeyValueStore.make(impl);
 };
 
@@ -512,8 +516,9 @@ export interface KeepConnected {
  * Bun retries a dropped connection on its own, but only `maxRetries` times
  * (about 30 seconds with the defaults). After that it fires `onclose` and the
  * client stays closed even once the server is back: every command fails with
- * `ERR_REDIS_CONNECTION_CLOSED`. This hooks `onclose` and keeps calling
- * `connect()` with a capped exponential backoff until it succeeds.
+ * `ERR_REDIS_CONNECTION_CLOSED`. This hooks `onclose` (a handler already set
+ * keeps running) and keeps calling `connect()` with a capped exponential
+ * backoff until it succeeds.
  *
  * Bun fires `onclose` with the same error for an explicit `close()`, so call
  * `stop` before closing the client on purpose. Closing the scope also stops it.
@@ -529,11 +534,17 @@ export const keepConnected = (
   Effect.gen(function* () {
     const closed = yield* Queue.sliding<void>(1);
     let stopped = false;
-    client.onclose = () => {
+    // Wraps an existing handler instead of replacing it.
+    const previous = client.onclose;
+    const onclose: NonNullable<ReconnectableClient["onclose"]> = function (
+      error,
+    ) {
       if (!stopped) {
         Queue.unsafeOffer(closed, undefined);
       }
+      previous?.call(this, error);
     };
+    client.onclose = onclose;
 
     const backoff = Schedule.exponential(
       Duration.millis(options?.initialDelayMs ?? 100),
@@ -556,9 +567,12 @@ export const keepConnected = (
 
     const stop = Effect.suspend(() => {
       stopped = true;
-      // A no-op rather than null: once a handler has been set, Bun (1.4)
-      // throws asynchronously from close() if onclose was reset to null.
-      client.onclose = () => {};
+      // Hands back the previous handler unless ours was replaced since. A
+      // no-op rather than null: once a handler has been set, Bun (1.4) throws
+      // asynchronously from close() if onclose was reset to null.
+      if (client.onclose === onclose) {
+        client.onclose = previous ?? (() => {});
+      }
       return Fiber.interrupt(fiber);
     }).pipe(Effect.asVoid);
     yield* Effect.addFinalizer(() => stop);
