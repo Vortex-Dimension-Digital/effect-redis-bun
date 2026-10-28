@@ -1,5 +1,5 @@
 {
-  "$schema": "./node_modules/tsrs/schemas/tsconfig.schema.json",
+  "$schema": "./node_modules/@effect/tsgo/schema.json",
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],
@@ -22,7 +22,10 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noPropertyAccessFromIndexSignature": true
+    "noPropertyAccessFromIndexSignature": true,
+    // Effect diagnostics, reported by tsc and the editor once `effect-tsgo patch`
+    // (the prepare script) has patched TypeScript
+    "plugins": [{ "name": "@effect/language-service" }]
   },
   "include": ["src"]
 }

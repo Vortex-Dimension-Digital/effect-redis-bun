@@ -17,14 +17,14 @@
     "EXAMPLES.md"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm --minify --sourcemap=external --packages=external && tsrs -p tsconfig.build.json",
-    "check": "bun fmt --check && bun run lint && bun run typecheck",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm --minify --sourcemap=external --packages=external && tsc -p tsconfig.build.json",
     "format": "bun fmt",
     "lint": "oxlint --deny-warnings",
-    "typecheck": "tsrs",
+    "typecheck": "tsc",
     "test": "bun test",
     "test:integration": "bun test src/index.integration.test.ts",
-    "prepublishOnly": "bun run check && bun test && bun run build"
+    "prepare": "effect-tsgo patch --typescript",
+    "prepublishOnly": "bun fmt --check && bun run lint && bun check && bun test && bun run build"
   },
   "keywords": [
     "effect",
@@ -47,10 +47,11 @@
   },
   "devDependencies": {
     "@effect/platform": "0.97.3",
+    "@effect/tsgo": "0.63.0",
     "@types/bun": "1.4.4",
     "effect": "3.22.4",
     "oxlint": "1.90.0",
-    "tsrs": "0.20.1-ts7.1.0-beta"
+    "typescript": "7.0.2"
   },
   "engines": {
     "bun": ">=1.2.22"

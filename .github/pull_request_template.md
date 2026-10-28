@@ -11,7 +11,7 @@ Closes #
 ## Checklist
 
 - [ ] The PR title is a [Conventional Commit](https://www.conventionalcommits.org/) (`feat: ...`, `fix: ...`); a squash merge uses it as the commit message
-- [ ] `bun run check` passes (format, lint, type check)
+- [ ] `bun fmt --check`, `bun run lint` and `bun run typecheck` pass
 - [ ] `bun test` passes, with tests added or updated for the change
 - [ ] Public API changes are documented (JSDoc, README, EXAMPLES)
 - [ ] Breaking changes are marked with `!` in the title and explained below

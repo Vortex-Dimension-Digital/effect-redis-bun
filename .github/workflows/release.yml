@@ -38,7 +38,11 @@ jobs:
             exit 1
           fi
 
-      - run: bun run check
+      - run: bun fmt --check
+
+      - run: bun run lint
+
+      - run: bun check
 
       - run: bun test
 

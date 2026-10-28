@@ -288,7 +288,8 @@ Binary values written through `KeyValueStore.set` by an earlier version are stil
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md). Development uses Bun pinned with [mise](https://mise.jdx.dev),
-`bun fmt`, [oxlint](https://oxc.rs/docs/guide/usage/linter) and [tsrs](https://github.com/oxc-project/tsrs).
+`bun fmt`, [oxlint](https://oxc.rs/docs/guide/usage/linter), and TypeScript 7 with the
+[Effect language service](https://github.com/Effect-TS/tsgo).
 
 ## Breaking Change From 2.x
 

@@ -17,17 +17,24 @@ Without mise, install the Bun version from `mise.toml` yourself.
 
 ## Tooling
 
-| Task                                                     | Command                                                        |
-| -------------------------------------------------------- | -------------------------------------------------------------- |
-| Format ([`bun fmt`](https://bun.com/docs/format))        | `bun run format`                                               |
-| Lint ([oxlint](https://oxc.rs/docs/guide/usage/linter))  | `bun run lint`                                                 |
-| Type check ([tsrs](https://github.com/oxc-project/tsrs)) | `bun run typecheck`                                            |
-| All of the above, without writing                        | `bun run check`                                                |
-| Unit tests                                               | `bun test`                                                     |
-| Integration tests                                        | `REDIS_URL=redis://127.0.0.1:6379/15 bun run test:integration` |
-| Build (`bun build` + `.d.ts` from tsrs)                  | `bun run build`                                                |
+| Task                                                    | Command                                                        |
+| ------------------------------------------------------- | -------------------------------------------------------------- |
+| Format ([`bun fmt`](https://bun.com/docs/format))       | `bun run format` (`bun fmt --check` to only check)             |
+| Lint ([oxlint](https://oxc.rs/docs/guide/usage/linter)) | `bun run lint`                                                 |
+| Type check with Effect diagnostics (`tsc`)              | `bun run typecheck`                                            |
+| Type check, as CI does                                  | `bun check`                                                    |
+| Unit tests                                              | `bun test`                                                     |
+| Integration tests                                       | `REDIS_URL=redis://127.0.0.1:6379/15 bun run test:integration` |
+| Build (`bun build` + `.d.ts` from `tsc`)                | `bun run build`                                                |
 
 There are no config files for the formatter or the linter: both run with their defaults.
+
+`tsc` is TypeScript 7 (tsgo). `bun install` runs `effect-tsgo patch`, which adds the
+[Effect language service](https://github.com/Effect-TS/tsgo) to it, so `tsc` and the editor report
+Effect diagnostics (floating effects, `yield` without `*`, ...). In VS Code, install the TypeScript 7
+extension (`TypeScriptTeam.native-preview`) and use the workspace version. CI type checks with
+`bun check`, which is faster but does not load the Effect plugin, so run `bun run typecheck` before
+pushing.
 
 ### Integration tests
 
@@ -53,7 +60,7 @@ nix shell nixpkgs#act -c act -s GITHUB_TOKEN="$(gh auth token)" -W .github/workf
 1. Branch from `main` and keep the change focused.
 2. Add or update tests. Unit tests use `FakeRedisClient` in `src/index.test.ts`; anything that depends on real server behavior belongs in `src/index.integration.test.ts`.
 3. Document public API changes with JSDoc and in `README.md` (and `EXAMPLES.md` when relevant).
-4. Make sure `bun run check` and `bun test` pass.
+4. Make sure `bun fmt --check`, `bun run lint`, `bun run typecheck` and `bun test` pass.
 5. Use a [Conventional Commit](https://www.conventionalcommits.org/) as the PR title (`feat: ...`, `fix: ...`, `docs: ...`, add `!` for breaking changes). CI checks it, since a squash merge uses the title as the commit message.
 
 CI must pass before merging: the `Check` job on the pinned Bun, unit tests on the minimum (1.2.22) and latest Bun against the lowest and locked Effect versions, and integration tests against Redis 7.2, Redis 8 and Valkey 9.
