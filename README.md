@@ -1,5 +1,35 @@
 # @vortexdd/effect-redis-bun
 
+> [!WARNING]
+> **This package is no longer maintained, and the repository is archived.** It supports Effect 3 only and
+> will not be ported to Effect 4. The last release (3.1.1) keeps working with Effect 3.
+
+Effect 4 covers most of this package out of the box. `BunRedis` from `@effect/platform-bun` provides Effect's
+own `Redis` service on top of Bun's client, and `effect/persistence` builds on it (`Persistence.layerRedis`,
+`RateLimiter.layerStoreRedis`, ...):
+
+```ts
+import { BunRedis } from "@effect/platform-bun";
+import { Effect, Layer } from "effect";
+import { Persistence, Redis } from "effect/persistence";
+
+// Effect's Redis service, on Bun's client
+const RedisLive = BunRedis.layer({ url: "redis://localhost:6379" });
+
+// Redis-backed persistence: namespaced keys, JSON values, TTLs
+const PersistenceLive = Persistence.layerRedis.pipe(Layer.provide(RedisLive));
+
+const program = Effect.gen(function* () {
+  const redis = yield* Redis.Redis;
+  yield* redis.send("SET", "greeting", "hello");
+});
+```
+
+Effect 4 has no Redis-backed `KeyValueStore`: use `Persistence`, or build one with `KeyValueStore.make` from
+`effect/persistence` over `BunRedis`.
+
+---
+
 Effect-first Redis integration for Bun.
 
 The library exposes two layers of abstraction:
