@@ -47,10 +47,10 @@
   },
   "devDependencies": {
     "@effect/platform": "0.97.3",
-    "@effect/tsgo": "0.63.0",
+    "@effect/tsgo": "0.67.7",
     "@types/bun": "1.4.4",
     "effect": "3.22.4",
-    "oxlint": "1.90.0",
+    "oxlint": "1.93.0",
     "typescript": "7.0.2"
   },
   "engines": {
